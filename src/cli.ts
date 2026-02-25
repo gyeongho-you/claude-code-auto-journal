@@ -127,7 +127,7 @@ function cmdHelp(): void {
   console.log('  config             현재 설정 및 옵션 확인');
   console.log('  logs               일지 생성 성공/실패 기록 확인');
   console.log('  write-journal      일지 생성 (생성, 실패, 수정된 일자의 일지를 생성)');
-  console.log('  retry              실패한 날짜의 일지 재생성\n');
+  console.log('  retry              실패한 날짜의 일지 재생성');
   console.log('  setup              설정값 적용\n');
 }
 

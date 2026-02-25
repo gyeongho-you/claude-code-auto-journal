@@ -24,8 +24,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/cli.ts
-var fs3 = __toESM(require("fs"));
-var path3 = __toESM(require("path"));
+var fs4 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -279,12 +279,116 @@ if (isDirectRun) {
   main();
 }
 
+// src/setup.ts
+var fs3 = __toESM(require("fs"));
+var os2 = __toESM(require("os"));
+var path3 = __toESM(require("path"));
+var import_child_process2 = require("child_process");
+var HOME = os2.homedir();
+var CLAUDE_DIR = path3.join(HOME, ".claude");
+var DATA_DIR2 = path3.join(HOME, ".claude", "daily-journal");
+var PLUGIN_DIR = path3.join(CLAUDE_DIR, "plugins", "daily-journal");
+var SETTINGS_PATH = path3.join(CLAUDE_DIR, "settings.json");
+function registerStopHook() {
+  const hookCommand = `node "${path3.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
+  let settings = {};
+  if (fs3.existsSync(SETTINGS_PATH)) {
+    try {
+      settings = JSON.parse(fs3.readFileSync(SETTINGS_PATH, "utf-8"));
+    } catch {
+      settings = {};
+    }
+  }
+  const hooks = settings.hooks ?? {};
+  const stopHooks = hooks.Stop ?? [];
+  const alreadyRegistered = stopHooks.some(
+    (h) => h.hooks?.some((hh) => hh.command?.includes("daily-journal"))
+  );
+  if (!alreadyRegistered) {
+    stopHooks.push({
+      hooks: [{ type: "command", command: hookCommand }]
+    });
+  }
+  settings.hooks = { ...hooks, Stop: stopHooks };
+  fs3.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
+  console.log("\u2713 Stop \uD6C5 \uB4F1\uB85D \uC644\uB8CC");
+}
+function registerTaskScheduler(endTime) {
+  const [hour, minute] = endTime.split(":");
+  const generateScript = path3.join(PLUGIN_DIR, "dist", "generate-journal.js");
+  const taskName = "DailyJournalPlugin";
+  const deleteCmd = `schtasks /delete /tn "${taskName}" /f 2>nul`;
+  const createCmd = [
+    `schtasks /create /tn "${taskName}"`,
+    `/tr "node \\"${generateScript}\\""`,
+    `/sc daily /st ${hour}:${minute}`,
+    `/f`
+  ].join(" ");
+  try {
+    (0, import_child_process2.execSync)(deleteCmd, { stdio: "ignore" });
+  } catch {
+  }
+  (0, import_child_process2.execSync)(createCmd, { stdio: "inherit" });
+  console.log(`\u2713 Task Scheduler \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
+}
+function createUserConfigIfAbsent() {
+  const userConfigPath = path3.join(DATA_DIR2, "user-config.json");
+  if (fs3.existsSync(userConfigPath)) return;
+  const defaultConfig = {
+    schedule: {
+      start: "09:00",
+      end: "18:00"
+    },
+    summary: {
+      use: true,
+      prompt: "\uB2E4\uC74C Claude \uC751\uB2F5\uC744 \uD575\uC2EC\uB9CC 1~2\uC904\uB85C \uC694\uC57D\uD574\uC918. \uBCC0\uACBD\uB41C \uD30C\uC77C, \uD574\uACB0\uD55C \uBB38\uC81C \uC704\uC8FC\uB85C."
+    },
+    journal: {
+      prompt: "\uC544\uB798 \uC791\uC5C5 \uC694\uC57D \uBAA9\uB85D\uC744 \uBC14\uD0D5\uC73C\uB85C \uC624\uB298\uC758 \uAC1C\uBC1C \uC77C\uC9C0\uB97C \uB9C8\uD06C\uB2E4\uC6B4\uC73C\uB85C \uC791\uC131\uD574\uC918.",
+      output_dir: ""
+    },
+    cleanup: false,
+    save: true
+  };
+  fs3.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
+  console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
+}
+function main2() {
+  setup();
+}
+function setup() {
+  fs3.mkdirSync(DATA_DIR2, { recursive: true });
+  console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR2}`);
+  createUserConfigIfAbsent();
+  registerStopHook();
+  const config = loadConfig();
+  registerTaskScheduler(config.schedule.end);
+  try {
+    (0, import_child_process2.execSync)("npm link", { cwd: PLUGIN_DIR, stdio: "ignore" });
+    console.log("\u2713 CLI \uC804\uC5ED \uB4F1\uB85D \uC644\uB8CC (dj \uBA85\uB839\uC5B4 \uC0AC\uC6A9 \uAC00\uB2A5)");
+  } catch {
+    console.warn("\u26A0 CLI \uC804\uC5ED \uB4F1\uB85D \uC2E4\uD328. \uC218\uB3D9\uC73C\uB85C \uB4F1\uB85D\uD558\uB824\uBA74:");
+    console.warn(`  cd "${PLUGIN_DIR}" && npm link`);
+  }
+  console.log("\n\u2705 daily-journal \uD50C\uB7EC\uADF8\uC778 \uC124\uCE58 \uC644\uB8CC");
+  console.log(`   \uB370\uC774\uD130 \uC704\uCE58: ${DATA_DIR2}`);
+  console.log(`   \uC77C\uC9C0 \uC0DD\uC131 \uC2DC\uAC04: \uB9E4\uC77C ${config.schedule.end}`);
+  console.log("\n   \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C: ~/.claude/daily-journal/user-config.json");
+  console.log("\n   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  console.log("   \uB3C4\uC6C0\uB9D0 dj help");
+  console.log("   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+}
+var isDirectRun2 = process.argv[1]?.endsWith("setup.js") || process.argv[1]?.endsWith("setup.ts");
+if (isDirectRun2) {
+  main2();
+}
+
 // src/cli.ts
-var RUN_HISTORY_PATH = path3.join(DATA_DIR, "run-history.json");
+var RUN_HISTORY_PATH = path4.join(DATA_DIR, "run-history.json");
 function loadRunHistory() {
   try {
-    if (fs3.existsSync(RUN_HISTORY_PATH)) {
-      return JSON.parse(fs3.readFileSync(RUN_HISTORY_PATH, "utf-8"));
+    if (fs4.existsSync(RUN_HISTORY_PATH)) {
+      return JSON.parse(fs4.readFileSync(RUN_HISTORY_PATH, "utf-8"));
     }
   } catch {
   }
@@ -301,8 +405,8 @@ function cmdWriteJournal() {
 }
 function cmdConfig() {
   const config = loadConfig();
-  const userConfigPath = path3.join(DATA_DIR, "user-config.json");
-  const hasUserConfig = fs3.existsSync(userConfigPath);
+  const userConfigPath = path4.join(DATA_DIR, "user-config.json");
+  const hasUserConfig = fs4.existsSync(userConfigPath);
   console.log(`
 \uD604\uC7AC \uC124\uC815 (user-config.json ${hasUserConfig ? "\uC801\uC6A9\uB428" : "\uC5C6\uC74C \u2014 \uAE30\uBCF8\uAC12 \uC0AC\uC6A9"})
 `);
@@ -388,6 +492,7 @@ function cmdHelp() {
   console.log("  logs               \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
   console.log("  write-journal      \uC77C\uC9C0 \uC0DD\uC131 (\uC0DD\uC131, \uC2E4\uD328, \uC218\uC815\uB41C \uC77C\uC790\uC758 \uC77C\uC9C0\uB97C \uC0DD\uC131)");
   console.log("  retry              \uC2E4\uD328\uD55C \uB0A0\uC9DC\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131\n");
+  console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9\n");
 }
 var command = process.argv[2];
 switch (command) {
@@ -411,6 +516,14 @@ switch (command) {
   case "retry":
     try {
       cmdRetry();
+    } catch (e) {
+      logError(String(e));
+      process.exit(1);
+    }
+    break;
+  case "setup":
+    try {
+      setup();
     } catch (e) {
       logError(String(e));
       process.exit(1);

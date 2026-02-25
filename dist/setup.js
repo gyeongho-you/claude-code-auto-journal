@@ -5,6 +5,10 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -21,8 +25,14 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/setup.ts
+var setup_exports = {};
+__export(setup_exports, {
+  setup: () => setup
+});
+module.exports = __toCommonJS(setup_exports);
 var fs2 = __toESM(require("fs"));
 var os2 = __toESM(require("os"));
 var path2 = __toESM(require("path"));
@@ -70,6 +80,7 @@ function loadConfig() {
 }
 
 // src/setup.ts
+var import_child_process = require("child_process");
 var HOME = os2.homedir();
 var CLAUDE_DIR = path2.join(HOME, ".claude");
 var DATA_DIR2 = path2.join(HOME, ".claude", "daily-journal");
@@ -110,12 +121,11 @@ function registerTaskScheduler(endTime) {
     `/sc daily /st ${hour}:${minute}`,
     `/f`
   ].join(" ");
-  const { execSync } = require("child_process");
   try {
-    execSync(deleteCmd, { stdio: "ignore" });
+    (0, import_child_process.execSync)(deleteCmd, { stdio: "ignore" });
   } catch {
   }
-  execSync(createCmd, { stdio: "inherit" });
+  (0, import_child_process.execSync)(createCmd, { stdio: "inherit" });
   console.log(`\u2713 Task Scheduler \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
 }
 function createUserConfigIfAbsent() {
@@ -141,15 +151,17 @@ function createUserConfigIfAbsent() {
   console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
 }
 function main() {
+  setup();
+}
+function setup() {
   fs2.mkdirSync(DATA_DIR2, { recursive: true });
   console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR2}`);
   createUserConfigIfAbsent();
   registerStopHook();
   const config = loadConfig();
   registerTaskScheduler(config.schedule.end);
-  const { execSync } = require("child_process");
   try {
-    execSync("npm link", { cwd: PLUGIN_DIR, stdio: "ignore" });
+    (0, import_child_process.execSync)("npm link", { cwd: PLUGIN_DIR, stdio: "ignore" });
     console.log("\u2713 CLI \uC804\uC5ED \uB4F1\uB85D \uC644\uB8CC (dj \uBA85\uB839\uC5B4 \uC0AC\uC6A9 \uAC00\uB2A5)");
   } catch {
     console.warn("\u26A0 CLI \uC804\uC5ED \uB4F1\uB85D \uC2E4\uD328. \uC218\uB3D9\uC73C\uB85C \uB4F1\uB85D\uD558\uB824\uBA74:");
@@ -163,4 +175,11 @@ function main() {
   console.log("   \uB3C4\uC6C0\uB9D0 dj help");
   console.log("   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
 }
-main();
+var isDirectRun = process.argv[1]?.endsWith("setup.js") || process.argv[1]?.endsWith("setup.ts");
+if (isDirectRun) {
+  main();
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  setup
+});
