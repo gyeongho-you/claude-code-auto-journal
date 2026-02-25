@@ -10,9 +10,11 @@ Claude Code 플러그인 — 대화가 끝날 때마다 자동으로 작업 내�
 
 ## 요구사항
 
-- Windows
+- Windows / macOS / Linux
 - Node.js 18 이상
 - Claude Code CLI (`claude`) 설치 및 로그인 완료
+
+> 스케줄러: Windows는 Task Scheduler, macOS/Linux는 cron을 사용합니다.
 
 ## 설치
 

@@ -491,7 +491,7 @@ function cmdHelp() {
   console.log("  config             \uD604\uC7AC \uC124\uC815 \uBC0F \uC635\uC158 \uD655\uC778");
   console.log("  logs               \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
   console.log("  write-journal      \uC77C\uC9C0 \uC0DD\uC131 (\uC0DD\uC131, \uC2E4\uD328, \uC218\uC815\uB41C \uC77C\uC790\uC758 \uC77C\uC9C0\uB97C \uC0DD\uC131)");
-  console.log("  retry              \uC2E4\uD328\uD55C \uB0A0\uC9DC\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131\n");
+  console.log("  retry              \uC2E4\uD328\uD55C \uB0A0\uC9DC\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
   console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9\n");
 }
 var command = process.argv[2];

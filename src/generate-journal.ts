@@ -93,8 +93,6 @@ function generateJournalForDate(date: string, config: Config): void {
   const historyDir = path.join(dateDir, 'history');
   const timestamp = new Date().toISOString();
 
-  recordRunHistory({ date, status: 'create', timestamp });
-
   if (!fs.existsSync(historyDir)) {
     console.log(`  데이터 없음 (history 디렉토리 없음)`);
     recordRunHistory({ date, status: 'no_data', timestamp });

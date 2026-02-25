@@ -1,12 +1,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { loadConfig } from './config';
+import {DATA_DIR, loadConfig} from './config';
 import {execSync} from "child_process";
 
 const HOME = os.homedir();
 const CLAUDE_DIR = path.join(HOME, '.claude');
-const DATA_DIR = path.join(HOME, '.claude', 'daily-journal');
 const PLUGIN_DIR = path.join(CLAUDE_DIR, 'plugins', 'daily-journal');
 const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
 
@@ -42,11 +41,18 @@ function registerStopHook(): void {
 }
 
 function registerTaskScheduler(endTime: string): void {
+  if (process.platform === 'win32') {
+    registerWindowsScheduler(endTime);
+  } else {
+    registerCronJob(endTime);
+  }
+}
+
+function registerWindowsScheduler(endTime: string): void {
   const [hour, minute] = endTime.split(':');
   const generateScript = path.join(PLUGIN_DIR, 'dist', 'generate-journal.js');
   const taskName = 'DailyJournalPlugin';
 
-  // 기존 작업 제거 후 재등록
   const deleteCmd = `schtasks /delete /tn "${taskName}" /f 2>nul`;
   const createCmd = [
     `schtasks /create /tn "${taskName}"`,
@@ -61,6 +67,29 @@ function registerTaskScheduler(endTime: string): void {
 
   execSync(createCmd, { stdio: 'inherit' });
   console.log(`✓ Task Scheduler 등록 완료 (매일 ${endTime})`);
+}
+
+function registerCronJob(endTime: string): void {
+  const [hour, minute] = endTime.split(':');
+  const generateScript = path.join(PLUGIN_DIR, 'dist', 'generate-journal.js');
+  const cronLine = `${minute} ${hour} * * * node "${generateScript}" # daily-journal-plugin`;
+
+  let currentCrontab = '';
+  try {
+    currentCrontab = execSync('crontab -l', { encoding: 'utf-8' });
+  } catch { /* crontab 없으면 무시 */ }
+
+  const filtered = currentCrontab.split('\n')
+    .filter(l => !l.includes('daily-journal-plugin'))
+    .filter(Boolean);
+  filtered.push(cronLine);
+
+  const tmpFile = path.join(os.tmpdir(), 'daily-journal-crontab.tmp');
+  fs.writeFileSync(tmpFile, filtered.join('\n') + '\n', 'utf-8');
+  execSync(`crontab "${tmpFile}"`);
+  fs.unlinkSync(tmpFile);
+
+  console.log(`✓ cron 등록 완료 (매일 ${endTime})`);
 }
 
 function createUserConfigIfAbsent(): void {

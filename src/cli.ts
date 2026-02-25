@@ -38,7 +38,7 @@ function cmdConfig(): void {
   console.log(`  schedule.start     : "${config.schedule.start}"`);
   console.log(`                       훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함 \n`);
   console.log(`  schedule.end       : "${config.schedule.end}"`);
-  console.log(`                       훅 활성화 종료 시간. Task Scheduler가 이 시간에 일지 생성`);
+  console.log(`                       훅 활성화 종료 시간. 스케쥴러가 이 시간에 일지 생성`);
   console.log(`                       변경 시 setup 재실행 필요 \n`);
   console.log(`  summary.use        : ${config.summary.use}`);
   console.log(`                       false 시 응답 원본을 저장 (false시 claude 서브세션을 사용하지 않음[토큰절약]) \n`);
@@ -100,7 +100,7 @@ function cmdLogs(): void {
 function cmdRetry(): void {
   const history = loadRunHistory();
   const failed = Object.values(history)
-    .filter(e => e.status === 'failed')
+    .filter(e => ( e.status === 'failed' || e.status === 'modified'))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   if (failed.length === 0) {
@@ -109,7 +109,7 @@ function cmdRetry(): void {
   }
 
   const config = loadConfig();
-  console.log(`\n실패 항목 ${failed.length}건 재생성 시작...\n`);
+  console.log(`\n실패/수정 항목 ${failed.length}건 재생성 시작...\n`);
 
   for (const entry of failed) {
     console.log(`  ${entry.date}:`);
@@ -126,8 +126,8 @@ function cmdHelp(): void {
   console.log('  help               이 도움말 표시');
   console.log('  config             현재 설정 및 옵션 확인');
   console.log('  logs               일지 생성 성공/실패 기록 확인');
-  console.log('  write-journal      일지 생성 (생성, 실패, 수정된 일자의 일지를 생성)');
-  console.log('  retry              실패한 날짜의 일지 재생성');
+  console.log('  write-journal      오늘 일지 수동 생성');
+  console.log('  retry              실패한 날짜의 일지 재생성 (생성, 실패, 수정된 일자의 일지를 생성)');
   console.log('  setup              설정값 적용\n');
 }
 
