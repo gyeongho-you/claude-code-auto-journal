@@ -114,7 +114,7 @@ function generateJournalForDate(date: string, config: Config): void {
 
   fs.mkdirSync(dateDir, { recursive: true });
   fs.writeFileSync(path.join(dateDir, 'journal.md'), journalContent, 'utf-8');
-  recordRunHistory({ date, status: 'success', timestamp, entry_count: entryCount });
+  recordRunHistory({ date, status: 'success', timestamp });
   console.log(`  ✓ 완료 → ${path.join(dateDir, 'journal.md')}`);
 
   const today = new Date().toISOString().slice(0, 10);

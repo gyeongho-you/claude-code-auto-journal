@@ -36,7 +36,6 @@ export interface RunHistoryEntry {
   date: string;
   status: 'create' | 'success' | 'failed' | 'no_data' | 'modified';
   timestamp: string;
-  entry_count?: number;
   error?: string;
 }
 

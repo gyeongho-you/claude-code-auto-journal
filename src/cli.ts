@@ -66,25 +66,17 @@ function cmdLogs(): void {
     return;
   }
 
-  const statusIcon: Record<string, string> = {
-    create:   '○',
-    success:  '✓',
-    failed:   '✗',
-    no_data:  '-',
-    modified: '~',
-  };
-
   console.log('\n실행 기록:\n');
-  for (const entry of entries) {
-    const icon = statusIcon[entry.status] ?? '?';
-    const detail =
-      entry.status === 'success'  ? `${entry.entry_count}개 항목` :
-      entry.status === 'modified' ? `${entry.entry_count ?? 0}개 항목 (수정됨)` :
-      entry.status === 'failed'   ? `오류: ${entry.error}` :
-      entry.status === 'create'   ? '생성 중 (미완료)' :
-      '데이터 없음';
-    console.log(`  ${icon} ${entry.date}  [${entry.status.padEnd(8)}]  ${detail}`);
-  }
+  entries.forEach(entry => {
+    switch (entry.status) {
+      case 'success': console.log(entry.date + ' : success'); break;
+      case 'failed':  console.log(entry.date + ' : failed / error : ' + entry.error); break;
+      case 'modified': console.log(entry.date + ' : modified'); break;
+      case 'no_data': console.log(entry.date + ' : no_data'); break;
+      case 'create': console.log(entry.date + ' : create'); break;
+    }
+  })
+
   console.log('');
 
   const total = entries.length;
@@ -104,7 +96,7 @@ function cmdRetry(): void {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   if (failed.length === 0) {
-    console.log('재생성할 실패 항목이 없습니다.');
+    console.log('재생성할 항목이 없습니다.');
     return;
   }
 

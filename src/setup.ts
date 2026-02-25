@@ -132,7 +132,7 @@ export function setup(): void {
   // 3. Stop 훅 등록
   registerStopHook();
 
-  // 4. Task Scheduler 등록
+  // 4. 스케쥴러 등록
   const config = loadConfig();
   registerTaskScheduler(config.schedule.end);
 
