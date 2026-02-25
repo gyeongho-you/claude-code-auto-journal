@@ -196,7 +196,7 @@ function main() {
     return;
   }
   const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message) : last_assistant_message;
-  if (summary.length === 0) return;
+  if (summary.length === 0 || summary.trim().toUpperCase() === "SKIP") return;
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
   const historyDir = path2.join(todayDir, "history");

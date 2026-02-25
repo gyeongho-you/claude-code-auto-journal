@@ -6,7 +6,7 @@
   },
   "summary": {
     "use": true,
-    "defaultPrompt": "다음 Claude 응답을 요약. 형식은 다음과 같이 작성.",
+    "defaultPrompt": "다음 Claude 응답을 요약. 만약 일상적인 대화라면 'SKIP' 으로 대답, 그 이외는 형식은 다음과 같이 작성.",
     "stylePrompt": "핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로"
   },
   "journal": {

@@ -90,7 +90,7 @@ function main(): void {
   // 요약 사용 여부에 따라 대화내용 원본을 저장할지 요약본을 생성할지 결졍
   const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message) : last_assistant_message;
 
-  if(summary.length === 0) return;
+  if(summary.length === 0 || summary.trim().toUpperCase() === 'SKIP') return;
 
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
