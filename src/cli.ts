@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
-import {DATA_DIR, loadConfig, logError} from './config';
+import {DATA_DIR, loadConfig, logError, getDateString} from './config';
 import {RunHistoryEntry} from './types';
 import {writeJournal} from "./generate-journal";
 import {setup} from "./setup";
@@ -21,7 +21,7 @@ function loadRunHistory(): Record<string, RunHistoryEntry> {
 
 function cmdWriteJournal(): void {
   const config = loadConfig();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getDateString(config.timeZone);
   console.log(`\n오늘(${today}) 일지 생성 중...\n`);
   writeJournal(today, config);
   console.log('');
@@ -54,6 +54,8 @@ function cmdConfig(): void {
   console.log(`                       일지 생성 후 history 파일 삭제 여부 ( 당일 생성된 history는 삭제되지 않음 ) \n`);
   console.log(`  save                 : ${config.save}`);
   console.log(`                       prompt를 저장할지 여부 ( false 시 저장이 안됨 ) \n`);
+  console.log(`  timeZone             : ${config.timeZone}`);
+  console.log(`                       원하는 timeZone 설정 ( 미설정 또는 유효하지 않을 시 기본 Asia/Seoul로 설정됨 ) \n`);
   console.log(`\n  설정 파일 위치: ${userConfigPath}\n`);
 }
 

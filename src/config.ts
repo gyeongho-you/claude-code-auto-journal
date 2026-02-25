@@ -18,6 +18,17 @@ function loadDefaultConfig(): Config {
   };
 }
 
+function resolveTimeZone(candidate: unknown, fallback: string): string {
+  if (typeof candidate !== 'string' || !candidate) return fallback;
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    logError(`유효하지 않은 timeZone: "${candidate}", 기본값 사용: "${fallback}"`);
+    return fallback;
+  }
+}
+
 export function loadConfig(): Config {
   const defaultConfig = loadDefaultConfig();
   const userConfigPath = path.join(DATA_DIR, 'user-config.json');
@@ -44,15 +55,31 @@ export function loadConfig(): Config {
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
+      timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone),
     };
   } catch {
     return defaultConfig;
   }
 }
 
+export function getDateString(timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone }).format(new Date());
+}
+
+export function getNowMinutes(timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0') % 24;
+  const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0');
+  return h * 60 + m;
+}
+
 export function getTodayDir(config: Config): string {
-  const date = new Date().toISOString().slice(0, 10);
-  return path.join(config.journal.output_dir, date);
+  return path.join(config.journal.output_dir, getDateString(config.timeZone));
 }
 
 export function recordRunHistory(entry: RunHistoryEntry): void {

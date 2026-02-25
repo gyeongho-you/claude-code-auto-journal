@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { loadConfig, logError, recordRunHistory } from './config';
+import { loadConfig, logError, recordRunHistory, getDateString } from './config';
 import {Config, HistoryEntry} from './types';
 import {callClaude} from "./claude";
 
@@ -75,8 +75,7 @@ function summarizeChunk(chunkData: string, chunkIndex: number, totalChunks: numb
 
 function main(): void {
   const config = loadConfig();
-  const today = new Date().toISOString().slice(0, 10);
-  writeJournal(today, config);
+  writeJournal(getDateString(config.timeZone), config);
 }
 
 export function writeJournal(date: string, config: Config): void {
@@ -117,8 +116,7 @@ function generateJournalForDate(date: string, config: Config): void {
   recordRunHistory({ date, status: 'success', timestamp });
   console.log(`  ✓ 완료 → ${path.join(dateDir, 'journal.md')}`);
 
-  const today = new Date().toISOString().slice(0, 10);
-  if (config.cleanup && date !== today) {
+  if (config.cleanup && date !== getDateString(config.timeZone)) {
     fs.rmSync(historyDir, { recursive: true, force: true });
   }
 }

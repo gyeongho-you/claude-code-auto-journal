@@ -54,6 +54,16 @@ function loadDefaultConfig() {
     }
   };
 }
+function resolveTimeZone(candidate, fallback) {
+  if (typeof candidate !== "string" || !candidate) return fallback;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: candidate }).format(/* @__PURE__ */ new Date());
+    return candidate;
+  } catch {
+    logError(`\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 timeZone: "${candidate}", \uAE30\uBCF8\uAC12 \uC0AC\uC6A9: "${fallback}"`);
+    return fallback;
+  }
+}
 function loadConfig() {
   const defaultConfig = loadDefaultConfig();
   const userConfigPath = path.join(DATA_DIR, "user-config.json");
@@ -77,10 +87,19 @@ function loadConfig() {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
-      save: userConfig.save ?? defaultConfig.save
+      save: userConfig.save ?? defaultConfig.save,
+      timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
     };
   } catch {
     return defaultConfig;
+  }
+}
+function logError(message) {
+  try {
+    const logPath = path.join(DATA_DIR, "error.log");
+    fs.appendFileSync(logPath, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
+`);
+  } catch {
   }
 }
 
@@ -201,7 +220,8 @@ function createUserConfigIfAbsent() {
       output_dir: ""
     },
     cleanup: false,
-    save: true
+    save: true,
+    timeZone: "Asia/Seoul"
   };
   fs2.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
   console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);

@@ -141,6 +141,7 @@ function createUserConfigIfAbsent(): void {
     },
     cleanup: false,
     save: true,
+    timeZone: 'Asia/Seoul',
   };
 
   fs.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');

@@ -43,6 +43,16 @@ function loadDefaultConfig() {
     }
   };
 }
+function resolveTimeZone(candidate, fallback) {
+  if (typeof candidate !== "string" || !candidate) return fallback;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: candidate }).format(/* @__PURE__ */ new Date());
+    return candidate;
+  } catch {
+    logError(`\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 timeZone: "${candidate}", \uAE30\uBCF8\uAC12 \uC0AC\uC6A9: "${fallback}"`);
+    return fallback;
+  }
+}
 function loadConfig() {
   const defaultConfig = loadDefaultConfig();
   const userConfigPath = path.join(DATA_DIR, "user-config.json");
@@ -66,15 +76,29 @@ function loadConfig() {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
-      save: userConfig.save ?? defaultConfig.save
+      save: userConfig.save ?? defaultConfig.save,
+      timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
     };
   } catch {
     return defaultConfig;
   }
 }
+function getDateString(timeZone) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
+}
+function getNowMinutes(timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(/* @__PURE__ */ new Date());
+  const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
+  const m = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return h * 60 + m;
+}
 function getTodayDir(config) {
-  const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  return path.join(config.journal.output_dir, date);
+  return path.join(config.journal.output_dir, getDateString(config.timeZone));
 }
 function recordRunHistory(entry) {
   try {
@@ -124,14 +148,16 @@ function callClaude(input) {
 }
 
 // src/stop-hook.ts
-function isInTimeRange(start, end) {
-  const now = /* @__PURE__ */ new Date();
+function isInTimeRange(start, end, timeZone) {
   const [sh, sm] = start.split(":").map(Number);
   const [eh, em] = end.split(":").map(Number);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowMinutes = getNowMinutes(timeZone);
   const startMinutes = sh * 60 + sm;
   const endMinutes = eh * 60 + em;
-  return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+  if (startMinutes <= endMinutes) {
+    return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
 }
 function extractProjectName(cwd) {
   if (!cwd) return "_unknown";
@@ -143,14 +169,18 @@ function getLastUserMessage(transcriptPath) {
     const content = fs2.readFileSync(transcriptPath, "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     for (let i = lines.length - 1; i >= 0; i--) {
-      const entry = JSON.parse(lines[i]);
-      if (entry.type === "user" && entry.message?.content) {
-        const content2 = entry.message.content;
-        if (typeof content2 === "string") return content2;
-        if (Array.isArray(content2)) {
-          const textPart = content2.find((p) => p.type === "text");
-          if (textPart?.text) return textPart.text;
+      try {
+        const entry = JSON.parse(lines[i]);
+        if (entry.type === "user" && entry.message?.content) {
+          const messageContent = entry.message.content;
+          if (typeof messageContent === "string") return messageContent;
+          if (Array.isArray(messageContent)) {
+            const textPart = messageContent.find((p) => p.type === "text");
+            if (textPart?.text) return textPart.text;
+          }
         }
+      } catch (e) {
+        logError("\uC190\uC0C1\uB41C history Skip: " + lines[i]);
       }
     }
   } catch (e) {
@@ -175,7 +205,7 @@ function main() {
     return;
   }
   const config = loadConfig();
-  if (!isInTimeRange(config.schedule.start, config.schedule.end) || !config.save) {
+  if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
     return;
   }
   const stdinData = fs2.readFileSync(0, "utf-8");
@@ -211,8 +241,7 @@ function main() {
     path2.join(historyDir, `${projectName}.jsonl`),
     JSON.stringify(entry) + "\n"
   );
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  recordRunHistory({ date: today, status: "modified", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  recordRunHistory({ date: getDateString(config.timeZone), status: "modified", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
 }
 try {
   main();

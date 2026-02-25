@@ -16,6 +16,7 @@ export interface Config {
   };
   cleanup: boolean;
   save: boolean;
+  timeZone: string;
 }
 
 export interface StdinPayload {

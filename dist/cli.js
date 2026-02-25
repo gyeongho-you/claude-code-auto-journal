@@ -44,6 +44,16 @@ function loadDefaultConfig() {
     }
   };
 }
+function resolveTimeZone(candidate, fallback) {
+  if (typeof candidate !== "string" || !candidate) return fallback;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: candidate }).format(/* @__PURE__ */ new Date());
+    return candidate;
+  } catch {
+    logError(`\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 timeZone: "${candidate}", \uAE30\uBCF8\uAC12 \uC0AC\uC6A9: "${fallback}"`);
+    return fallback;
+  }
+}
 function loadConfig() {
   const defaultConfig = loadDefaultConfig();
   const userConfigPath = path.join(DATA_DIR, "user-config.json");
@@ -67,11 +77,15 @@ function loadConfig() {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
-      save: userConfig.save ?? defaultConfig.save
+      save: userConfig.save ?? defaultConfig.save,
+      timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
     };
   } catch {
     return defaultConfig;
   }
+}
+function getDateString(timeZone) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
 }
 function recordRunHistory(entry) {
   try {
@@ -185,8 +199,7 @@ ${chunkData}`;
 }
 function main() {
   const config = loadConfig();
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  writeJournal(today, config);
+  writeJournal(getDateString(config.timeZone), config);
 }
 function writeJournal(date, config) {
   try {
@@ -215,8 +228,7 @@ function generateJournalForDate(date, config) {
   fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
   recordRunHistory({ date, status: "success", timestamp });
   console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  if (config.cleanup && date !== today) {
+  if (config.cleanup && date !== getDateString(config.timeZone)) {
     fs2.rmSync(historyDir, { recursive: true, force: true });
   }
 }
@@ -405,7 +417,8 @@ function createUserConfigIfAbsent() {
       output_dir: ""
     },
     cleanup: false,
-    save: true
+    save: true,
+    timeZone: "Asia/Seoul"
   };
   fs3.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
   console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
@@ -460,7 +473,7 @@ function loadRunHistory() {
 }
 function cmdWriteJournal() {
   const config = loadConfig();
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const today = getDateString(config.timeZone);
   console.log(`
 \uC624\uB298(${today}) \uC77C\uC9C0 \uC0DD\uC131 \uC911...
 `);
@@ -501,6 +514,9 @@ function cmdConfig() {
 `);
   console.log(`  save                 : ${config.save}`);
   console.log(`                       prompt\uB97C \uC800\uC7A5\uD560\uC9C0 \uC5EC\uBD80 ( false \uC2DC \uC800\uC7A5\uC774 \uC548\uB428 ) 
+`);
+  console.log(`  timeZone             : ${config.timeZone}`);
+  console.log(`                       \uC6D0\uD558\uB294 timeZone \uC124\uC815 ( \uBBF8\uC124\uC815 \uB610\uB294 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC744 \uC2DC \uAE30\uBCF8 Asia/Seoul\uB85C \uC124\uC815\uB428 ) 
 `);
   console.log(`
   \uC124\uC815 \uD30C\uC77C \uC704\uCE58: ${userConfigPath}

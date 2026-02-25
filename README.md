@@ -67,7 +67,8 @@ dj setup               # 설정값 적용
     "output_dir": ""
   },
   "cleanup": false,
-  "save": true
+  "save": true,
+  "timeZone": "Asia/Seoul"
 }
 ```
 
@@ -84,6 +85,7 @@ dj setup               # 설정값 적용
 | `journal.output_dir` | `""` | 일지 저장 경로. 비워두면 `~/.claude/daily-journal/data` 사용                                                                                                    |
 | `cleanup` | `false` | 일지 생성 후 히스토리 파일 삭제 여부. `true`로 설정하면 `.jsonl` 파일 삭제 (당일 생성된 history는 삭제 안 됨)                                                                         |
 | `save` | `true` | 대화 내용 저장 여부. `false`로 설정하면 stop-hook이 아무것도 기록하지 않음                                                                                                  |
+| `timeZone` | `"Asia/Seoul"` | 날짜/시간 기준 타임존. [IANA 타임존](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) 형식 사용 (예: `"America/New_York"`). 유효하지 않으면 기본값으로 폴백 |
 
 ## 데이터 저장 위치
 

@@ -15,5 +15,6 @@
     "output_dir": ""
   },
   "cleanup": false,
-  "save": true
+  "save": true,
+  "timeZone": "Asia/Seoul"
 }
