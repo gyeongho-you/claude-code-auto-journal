@@ -31,10 +31,15 @@ export function loadConfig(): Config {
     return {
       ...defaultConfig,
       schedule: { ...defaultConfig.schedule, ...userConfig.schedule },
-      summary: { ...defaultConfig.summary, ...userConfig.summary },
+      summary: {
+        ...defaultConfig.summary,
+        ...userConfig.summary,
+        defaultPrompt: defaultConfig.summary.defaultPrompt,
+      },
       journal: {
         ...defaultConfig.journal,
         ...userConfig.journal,
+        defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir,
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,

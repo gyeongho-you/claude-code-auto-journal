@@ -42,17 +42,17 @@ function cmdConfig(): void {
   console.log(`  schedule.end       : "${config.schedule.end}"`);
   console.log(`                       훅 활성화 종료 시간. 스케쥴러가 이 시간에 일지 생성`);
   console.log(`                       변경 시 setup 재실행 필요 \n`);
-  console.log(`  summary.use        : ${config.summary.use}`);
+  console.log(`  summary.use          : ${config.summary.use}`);
   console.log(`                       false 시 응답 원본을 저장 (false시 claude 서브세션을 사용하지 않음[토큰절약]) \n`);
-  console.log(`  summary.prompt     : "${config.summary.prompt.length > 60 ? config.summary.prompt.slice(0, 60)+ "..." : config.summary.prompt}"`);
+  console.log(`  summary.stylePrompt  : "${config.summary.stylePrompt.length > 60 ? config.summary.stylePrompt.slice(0, 60)+ "..." : config.summary.stylePrompt}"`);
   console.log(`                       대화 종료마다 응답을 요약할 때 쓰는 프롬프트 \n`);
-  console.log(`  journal.output_dir : "${config.journal.output_dir}"`);
+  console.log(`  journal.output_dir   : "${config.journal.output_dir}"`);
   console.log(`                       일지 저장 경로. YYYY-MM-DD/journal.md 형태로 저장됨 \n`);
-  console.log(`  journal.prompt     : "${config.journal.prompt.length > 60 ? config.journal.prompt.slice(0, 60)+ "..." : config.journal.prompt}"`);
+  console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60)+ "..." : config.journal.stylePrompt}"`);
   console.log(`                       일지 작성 스타일 등을 정하는 프롬프트 \n`);
-  console.log(`  cleanup            : ${config.cleanup}`);
+  console.log(`  cleanup              : ${config.cleanup}`);
   console.log(`                       일지 생성 후 history 파일 삭제 여부 ( 당일 생성된 history는 삭제되지 않음 ) \n`);
-  console.log(`  save               : ${config.save}`);
+  console.log(`  save                 : ${config.save}`);
   console.log(`                       prompt를 저장할지 여부 ( false 시 저장이 안됨 ) \n`);
   console.log(`\n  설정 파일 위치: ${userConfigPath}\n`);
 }

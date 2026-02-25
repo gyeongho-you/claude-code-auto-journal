@@ -55,10 +55,15 @@ function loadConfig() {
     return {
       ...defaultConfig,
       schedule: { ...defaultConfig.schedule, ...userConfig.schedule },
-      summary: { ...defaultConfig.summary, ...userConfig.summary },
+      summary: {
+        ...defaultConfig.summary,
+        ...userConfig.summary,
+        defaultPrompt: defaultConfig.summary.defaultPrompt
+      },
       journal: {
         ...defaultConfig.journal,
         ...userConfig.journal,
+        defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
@@ -166,8 +171,8 @@ function splitIntoChunks(data, maxTokens) {
   return chunks;
 }
 function summarizeChunk(chunkData, chunkIndex, totalChunks) {
-  const input = `\uB2E4\uC74C\uC740 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC758 \uC77C\uBD80\uC785\uB2C8\uB2E4 (\uD30C\uD2B8 ${chunkIndex + 1}/${totalChunks}).
-\uD575\uC2EC \uC791\uC5C5 \uB0B4\uC6A9, \uD574\uACB0\uD55C \uBB38\uC81C, \uC911\uC694\uD55C \uACB0\uC815 \uC0AC\uD56D\uC744 \uAC04\uACB0\uD558\uAC8C \uC815\uB9AC\uD574\uC8FC\uC138\uC694.
+  const input = `\uB2E4\uC74C\uC740 \uB300\uD654 \uAE30\uB85D\uC758 \uC77C\uBD80. (\uD30C\uD2B8 ${chunkIndex + 1}/${totalChunks}).
+\uD575\uC2EC \uC791\uC5C5 \uB0B4\uC6A9, \uD574\uACB0\uD55C \uBB38\uC81C, \uC911\uC694\uD55C \uACB0\uC815 \uC0AC\uD56D\uC744 \uAC04\uACB0\uD558\uAC8C \uC815\uB9AC.
 
 ${chunkData}`;
   const result = callClaude(input);
@@ -216,7 +221,8 @@ function generateJournalForDate(date, config) {
   }
 }
 function generateSingle(date, data, config) {
-  const input = `${config.journal.prompt}
+  const input = `${config.journal.defaultPrompt}
+${config.journal.stylePrompt}
 
 \uB0A0\uC9DC: ${date}
 
@@ -249,11 +255,12 @@ function generateChunked(date, data, config) {
   }
   const combined = partialSummaries.map((s, i) => `### \uD30C\uD2B8 ${i + 1}
 ${s}`).join("\n\n");
-  const finalInput = `${config.journal.prompt}
+  const finalInput = `${config.journal.defaultPrompt}
+${config.journal.stylePrompt}
 
 \uB0A0\uC9DC: ${date}
 
-\uC544\uB798\uB294 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC744 \uC5EC\uB7EC \uD30C\uD2B8\uB85C \uB098\uB204\uC5B4 \uC815\uB9AC\uD55C \uB0B4\uC6A9\uC785\uB2C8\uB2E4. \uC774\uB97C \uD558\uB098\uC758 \uC77C\uAD00\uB41C \uC77C\uC9C0\uB85C \uD1B5\uD569\uD574\uC8FC\uC138\uC694.
+\uC544\uB798\uB294 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC744 \uC5EC\uB7EC \uD30C\uD2B8\uB85C \uB098\uB204\uC5B4 \uC815\uB9AC\uD55C \uB0B4\uC6A9. \uC774\uB97C \uD558\uB098\uC758 \uC77C\uAD00\uB41C \uC77C\uC9C0\uB85C \uD1B5\uD569.
 
 ${combined}`;
   const result = callClaude(finalInput);
@@ -391,10 +398,10 @@ function createUserConfigIfAbsent() {
     },
     summary: {
       use: true,
-      prompt: "\uB2E4\uC74C Claude \uC751\uB2F5\uC744 \uD575\uC2EC\uB9CC 1~2\uC904\uB85C \uC694\uC57D\uD574\uC918. \uBCC0\uACBD\uB41C \uD30C\uC77C, \uD574\uACB0\uD55C \uBB38\uC81C \uC704\uC8FC\uB85C."
+      stylePrompt: "\uD575\uC2EC\uB9CC 3\uC904 \uC774\uB0B4\uB85C \uC694\uC57D. \uBCC0\uACBD\uB41C \uD30C\uC77C, \uC0AC\uC6A9\uB41C \uAE30\uC220, \uD574\uACB0\uB41C \uBB38\uC81C\uB97C \uC911\uC2EC\uC73C\uB85C"
     },
     journal: {
-      prompt: "\uC544\uB798 \uC791\uC5C5 \uC694\uC57D \uBAA9\uB85D\uC744 \uBC14\uD0D5\uC73C\uB85C \uC624\uB298\uC758 \uAC1C\uBC1C \uC77C\uC9C0\uB97C \uB9C8\uD06C\uB2E4\uC6B4\uC73C\uB85C \uC791\uC131\uD574\uC918.",
+      stylePrompt: "\uAC01 \uD504\uB85C\uC81D\uD2B8\uBCC4\uB85C \uD615\uC2DD\uC740 \uB9C8\uD06C\uB2E4\uC6B4 \uD615\uC2DD\uC73C\uB85C \uC791\uC131",
       output_dir: ""
     },
     cleanup: false,
@@ -477,22 +484,22 @@ function cmdConfig() {
   console.log(`                       \uD6C5 \uD65C\uC131\uD654 \uC885\uB8CC \uC2DC\uAC04. \uC2A4\uCF00\uC974\uB7EC\uAC00 \uC774 \uC2DC\uAC04\uC5D0 \uC77C\uC9C0 \uC0DD\uC131`);
   console.log(`                       \uBCC0\uACBD \uC2DC setup \uC7AC\uC2E4\uD589 \uD544\uC694 
 `);
-  console.log(`  summary.use        : ${config.summary.use}`);
+  console.log(`  summary.use          : ${config.summary.use}`);
   console.log(`                       false \uC2DC \uC751\uB2F5 \uC6D0\uBCF8\uC744 \uC800\uC7A5 (false\uC2DC claude \uC11C\uBE0C\uC138\uC158\uC744 \uC0AC\uC6A9\uD558\uC9C0 \uC54A\uC74C[\uD1A0\uD070\uC808\uC57D]) 
 `);
-  console.log(`  summary.prompt     : "${config.summary.prompt.length > 60 ? config.summary.prompt.slice(0, 60) + "..." : config.summary.prompt}"`);
+  console.log(`  summary.stylePrompt  : "${config.summary.stylePrompt.length > 60 ? config.summary.stylePrompt.slice(0, 60) + "..." : config.summary.stylePrompt}"`);
   console.log(`                       \uB300\uD654 \uC885\uB8CC\uB9C8\uB2E4 \uC751\uB2F5\uC744 \uC694\uC57D\uD560 \uB54C \uC4F0\uB294 \uD504\uB86C\uD504\uD2B8 
 `);
-  console.log(`  journal.output_dir : "${config.journal.output_dir}"`);
+  console.log(`  journal.output_dir   : "${config.journal.output_dir}"`);
   console.log(`                       \uC77C\uC9C0 \uC800\uC7A5 \uACBD\uB85C. YYYY-MM-DD/journal.md \uD615\uD0DC\uB85C \uC800\uC7A5\uB428 
 `);
-  console.log(`  journal.prompt     : "${config.journal.prompt.length > 60 ? config.journal.prompt.slice(0, 60) + "..." : config.journal.prompt}"`);
+  console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60) + "..." : config.journal.stylePrompt}"`);
   console.log(`                       \uC77C\uC9C0 \uC791\uC131 \uC2A4\uD0C0\uC77C \uB4F1\uC744 \uC815\uD558\uB294 \uD504\uB86C\uD504\uD2B8 
 `);
-  console.log(`  cleanup            : ${config.cleanup}`);
+  console.log(`  cleanup              : ${config.cleanup}`);
   console.log(`                       \uC77C\uC9C0 \uC0DD\uC131 \uD6C4 history \uD30C\uC77C \uC0AD\uC81C \uC5EC\uBD80 ( \uB2F9\uC77C \uC0DD\uC131\uB41C history\uB294 \uC0AD\uC81C\uB418\uC9C0 \uC54A\uC74C ) 
 `);
-  console.log(`  save               : ${config.save}`);
+  console.log(`  save                 : ${config.save}`);
   console.log(`                       prompt\uB97C \uC800\uC7A5\uD560\uC9C0 \uC5EC\uBD80 ( false \uC2DC \uC800\uC7A5\uC774 \uC548\uB428 ) 
 `);
   console.log(`

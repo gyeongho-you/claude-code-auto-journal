@@ -63,7 +63,7 @@ function splitIntoChunks(data: string, maxTokens: number): string[] {
 }
 
 function summarizeChunk(chunkData: string, chunkIndex: number, totalChunks: number): string {
-  const input = `다음은 오늘 하루 대화 기록의 일부입니다 (파트 ${chunkIndex + 1}/${totalChunks}).\n핵심 작업 내용, 해결한 문제, 중요한 결정 사항을 간결하게 정리해주세요.\n\n${chunkData}`;
+  const input = `다음은 대화 기록의 일부. (파트 ${chunkIndex + 1}/${totalChunks}).\n핵심 작업 내용, 해결한 문제, 중요한 결정 사항을 간결하게 정리.\n\n${chunkData}`;
   const result = callClaude(input);
   if (result.error || result.status !== 0) {
     throw new Error(result.stderr || String(result.error) || 'claude CLI 실패');
@@ -124,7 +124,7 @@ function generateJournalForDate(date: string, config: Config): void {
 }
 
 function generateSingle(date: string, data: string, config: Config): string | null {
-  const input = `${config.journal.prompt}\n\n날짜: ${date}\n\n${data}`;
+  const input = `${config.journal.defaultPrompt}\n${config.journal.stylePrompt}\n\n날짜: ${date}\n\n${data}`;
   const result = callClaude(input);
 
   if (result.error || result.status !== 0) {
@@ -161,7 +161,7 @@ function generateChunked(date: string, data: string, config: Config): string | n
     .map((s, i) => `### 파트 ${i + 1}\n${s}`)
     .join('\n\n');
 
-  const finalInput = `${config.journal.prompt}\n\n날짜: ${date}\n\n아래는 오늘 하루 대화 기록을 여러 파트로 나누어 정리한 내용입니다. 이를 하나의 일관된 일지로 통합해주세요.\n\n${combined}`;
+  const finalInput = `${config.journal.defaultPrompt}\n${config.journal.stylePrompt}\n\n날짜: ${date}\n\n아래는 오늘 하루 대화 기록을 여러 파트로 나누어 정리한 내용. 이를 하나의 일관된 일지로 통합.\n\n${combined}`;
   const result = callClaude(finalInput);
 
   if (result.error || result.status !== 0) {

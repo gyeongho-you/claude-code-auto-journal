@@ -6,10 +6,12 @@ export interface Config {
   };
   summary: {
     use: boolean;
-    prompt: string;
+    defaultPrompt: string;
+    stylePrompt: string;
   };
   journal: {
-    prompt: string;
+    defaultPrompt: string;
+    stylePrompt: string;
     output_dir: string;
   };
   cleanup: boolean;

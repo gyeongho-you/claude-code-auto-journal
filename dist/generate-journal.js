@@ -64,10 +64,15 @@ function loadConfig() {
     return {
       ...defaultConfig,
       schedule: { ...defaultConfig.schedule, ...userConfig.schedule },
-      summary: { ...defaultConfig.summary, ...userConfig.summary },
+      summary: {
+        ...defaultConfig.summary,
+        ...userConfig.summary,
+        defaultPrompt: defaultConfig.summary.defaultPrompt
+      },
       journal: {
         ...defaultConfig.journal,
         ...userConfig.journal,
+        defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
@@ -171,8 +176,8 @@ function splitIntoChunks(data, maxTokens) {
   return chunks;
 }
 function summarizeChunk(chunkData, chunkIndex, totalChunks) {
-  const input = `\uB2E4\uC74C\uC740 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC758 \uC77C\uBD80\uC785\uB2C8\uB2E4 (\uD30C\uD2B8 ${chunkIndex + 1}/${totalChunks}).
-\uD575\uC2EC \uC791\uC5C5 \uB0B4\uC6A9, \uD574\uACB0\uD55C \uBB38\uC81C, \uC911\uC694\uD55C \uACB0\uC815 \uC0AC\uD56D\uC744 \uAC04\uACB0\uD558\uAC8C \uC815\uB9AC\uD574\uC8FC\uC138\uC694.
+  const input = `\uB2E4\uC74C\uC740 \uB300\uD654 \uAE30\uB85D\uC758 \uC77C\uBD80. (\uD30C\uD2B8 ${chunkIndex + 1}/${totalChunks}).
+\uD575\uC2EC \uC791\uC5C5 \uB0B4\uC6A9, \uD574\uACB0\uD55C \uBB38\uC81C, \uC911\uC694\uD55C \uACB0\uC815 \uC0AC\uD56D\uC744 \uAC04\uACB0\uD558\uAC8C \uC815\uB9AC.
 
 ${chunkData}`;
   const result = callClaude(input);
@@ -221,7 +226,8 @@ function generateJournalForDate(date, config) {
   }
 }
 function generateSingle(date, data, config) {
-  const input = `${config.journal.prompt}
+  const input = `${config.journal.defaultPrompt}
+${config.journal.stylePrompt}
 
 \uB0A0\uC9DC: ${date}
 
@@ -254,11 +260,12 @@ function generateChunked(date, data, config) {
   }
   const combined = partialSummaries.map((s, i) => `### \uD30C\uD2B8 ${i + 1}
 ${s}`).join("\n\n");
-  const finalInput = `${config.journal.prompt}
+  const finalInput = `${config.journal.defaultPrompt}
+${config.journal.stylePrompt}
 
 \uB0A0\uC9DC: ${date}
 
-\uC544\uB798\uB294 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC744 \uC5EC\uB7EC \uD30C\uD2B8\uB85C \uB098\uB204\uC5B4 \uC815\uB9AC\uD55C \uB0B4\uC6A9\uC785\uB2C8\uB2E4. \uC774\uB97C \uD558\uB098\uC758 \uC77C\uAD00\uB41C \uC77C\uC9C0\uB85C \uD1B5\uD569\uD574\uC8FC\uC138\uC694.
+\uC544\uB798\uB294 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC744 \uC5EC\uB7EC \uD30C\uD2B8\uB85C \uB098\uB204\uC5B4 \uC815\uB9AC\uD55C \uB0B4\uC6A9. \uC774\uB97C \uD558\uB098\uC758 \uC77C\uAD00\uB41C \uC77C\uC9C0\uB85C \uD1B5\uD569.
 
 ${combined}`;
   const result = callClaude(finalInput);

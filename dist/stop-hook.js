@@ -54,10 +54,15 @@ function loadConfig() {
     return {
       ...defaultConfig,
       schedule: { ...defaultConfig.schedule, ...userConfig.schedule },
-      summary: { ...defaultConfig.summary, ...userConfig.summary },
+      summary: {
+        ...defaultConfig.summary,
+        ...userConfig.summary,
+        defaultPrompt: defaultConfig.summary.defaultPrompt
+      },
       journal: {
         ...defaultConfig.journal,
         ...userConfig.journal,
+        defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
@@ -153,8 +158,9 @@ function getLastUserMessage(transcriptPath) {
   }
   return null;
 }
-function summarize(summaryPrompt, response) {
-  const input = `${summaryPrompt}
+function summarize(defaultPrompt, stylePrompt, response) {
+  const input = `${defaultPrompt}
+${stylePrompt}
 
 ---
 ${response}`;
@@ -164,7 +170,7 @@ ${response}`;
   }
   return result.stdout.trim();
 }
-async function main() {
+function main() {
   if (process.env.DAILY_JOURNAL_RUNNING) {
     return;
   }
@@ -189,7 +195,7 @@ async function main() {
     logError(`user \uBA54\uC2DC\uC9C0 \uCD94\uCD9C \uC2E4\uD328 (session: ${session_id}), skip`);
     return;
   }
-  const summary = config.summary.use ? summarize(config.summary.prompt, last_assistant_message) : last_assistant_message;
+  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message) : last_assistant_message;
   if (summary.length === 0) return;
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
@@ -208,4 +214,8 @@ async function main() {
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   recordRunHistory({ date: today, status: "modified", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
 }
-main().catch((e) => logError(`stop-hook \uC624\uB958: ${e}`));
+try {
+  main();
+} catch (e) {
+  logError(`stop-hook \uC624\uB958: ${e}`);
+}

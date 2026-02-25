@@ -133,10 +133,10 @@ function createUserConfigIfAbsent(): void {
     },
     summary: {
       use: true,
-      prompt: '다음 Claude 응답을 핵심만 1~2줄로 요약해줘. 변경된 파일, 해결한 문제 위주로.',
+      stylePrompt: '핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로',
     },
     journal: {
-      prompt: '아래 작업 요약 목록을 바탕으로 오늘의 개발 일지를 마크다운으로 작성해줘.',
+      stylePrompt: '각 프로젝트별로 형식은 마크다운 형식으로 작성',
       output_dir: '',
     },
     cleanup: false,

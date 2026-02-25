@@ -43,8 +43,8 @@ function getLastUserMessage(transcriptPath: string): string | null {
   return null;
 }
 
-function summarize(summaryPrompt: string, response: string): string {
-  const input = `${summaryPrompt}\n\n---\n${response}`;
+function summarize(defaultPrompt: string, stylePrompt: string, response: string): string {
+  const input = `${defaultPrompt}\n${stylePrompt}\n\n---\n${response}`;
   const result = callClaude(input);
 
   if (result.error || result.status !== 0) {
@@ -53,7 +53,7 @@ function summarize(summaryPrompt: string, response: string): string {
   return result.stdout.trim();
 }
 
-async function main(): Promise<void> {
+function main(): void {
   // summarize()에서 호출한 claude --print 종료 시 재진입 방지
   if (process.env.DAILY_JOURNAL_RUNNING) {
     return;
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
   }
 
   // 요약 사용 여부에 따라 대화내용 원본을 저장할지 요약본을 생성할지 결졍
-  const summary = config.summary.use ? summarize(config.summary.prompt, last_assistant_message) : last_assistant_message;
+  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message) : last_assistant_message;
 
   if(summary.length === 0) return;
 
@@ -114,4 +114,8 @@ async function main(): Promise<void> {
   recordRunHistory({ date: today, status: 'modified', timestamp: new Date().toISOString() });
 }
 
-main().catch(e => logError(`stop-hook 오류: ${e}`));
+try{
+  main();
+} catch (e) {
+  logError(`stop-hook 오류: ${e}`);
+}

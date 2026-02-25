@@ -60,10 +60,10 @@ dj setup               # 설정값 적용
   },
   "summary": {
     "use": true,
-    "prompt": "다음 Claude 응답을 핵심만 1~2줄로 요약해줘. 변경된 파일, 해결한 문제 위주로."
+    "stylePrompt": "핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로"
   },
   "journal": {
-    "prompt": "아래 작업 요약 목록을 바탕으로 오늘의 개발 일지를 마크다운으로 작성해줘.",
+    "stylePrompt": "각 프로젝트별로 마크다운 형식으로 작성",
     "output_dir": ""
   },
   "cleanup": false,
@@ -71,14 +71,16 @@ dj setup               # 설정값 적용
 }
 ```
 
+> `stylePrompt`는 고정된 지시문에 덧붙이는 스타일 가이드입니다. 형식, 길이, 언어 등 출력 스타일만 지정하면 됩니다.
+
 | 옵션 | 기본값 | 설명 |
 |------|--------|------|
 | `schedule.use` | `true` | `false`로 설정하면 스케줄러 등록 안 함. 수동으로 `dj write-journal` 사용. **변경 시 setup 재실행 필요** |
 | `schedule.start` | `"09:00"` | 훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함 |
 | `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. 스케줄러가 이 시간에 일지 생성. **변경 시 setup 재실행 필요** |
 | `summary.use` | `true` | `false`로 설정하면 응답 원본을 저장 (stop-hook에서 claude 호출 없음). 단, 대화가 많으면 일지 생성 시 컨텍스트 초과로 청크 분할 처리됨 |
-| `summary.prompt` | 참고 | `summary.use: true`일 때 응답을 요약할 프롬프트 |
-| `journal.prompt` | 참고 | 하루치 기록으로 일지를 생성할 때 쓰는 프롬프트 |
+| `summary.stylePrompt` | 참고 | `summary.use: true`일 때 요약 스타일 지정 (형식, 길이 등) |
+| `journal.stylePrompt` | 참고 | 일지 생성 시 출력 스타일 지정 (형식, 구조 등) |
 | `journal.output_dir` | `""` | 일지 저장 경로. 비워두면 `~/.claude/daily-journal/data` 사용 |
 | `cleanup` | `false` | 일지 생성 후 히스토리 파일 삭제 여부. `true`로 설정하면 `.jsonl` 파일 삭제 (당일 생성된 history는 삭제 안 됨) |
 | `save` | `true` | 대화 내용 저장 여부. `false`로 설정하면 stop-hook이 아무것도 기록하지 않음 |
