@@ -4,6 +4,7 @@ import * as path from 'path';
 import {DATA_DIR, loadConfig, logError} from './config';
 import {RunHistoryEntry} from './types';
 import {writeJournal} from "./generate-journal";
+import {setup} from "./setup";
 
 const RUN_HISTORY_PATH = path.join(DATA_DIR, 'run-history.json');
 
@@ -127,6 +128,7 @@ function cmdHelp(): void {
   console.log('  logs               일지 생성 성공/실패 기록 확인');
   console.log('  write-journal      일지 생성 (생성, 실패, 수정된 일자의 일지를 생성)');
   console.log('  retry              실패한 날짜의 일지 재생성\n');
+  console.log('  setup              설정값 적용\n');
 }
 
 // ─── router ────────────────────────────────────────────────────────────────
@@ -148,6 +150,9 @@ switch (command) {
     break;
   case 'retry':
     try { cmdRetry(); } catch (e) { logError(String(e)); process.exit(1); }
+    break;
+  case 'setup':
+    try { setup(); } catch (e) { logError(String(e)); process.exit(1); }
     break;
   default:
     cmdHelp();

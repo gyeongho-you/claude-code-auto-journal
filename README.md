@@ -17,11 +17,18 @@ Claude Code 플러그인 — 대화가 끝날 때마다 자동으로 작업 내�
 ## 설치
 
 ```bash
-git clone https://github.com/username/daily-journal ~/.claude/plugins/daily-journal
+git clone https://github.com/gyeongho-you/claude-code-auto-journal ~/.claude/plugins/daily-journal
 node ~/.claude/plugins/daily-journal/dist/setup.js
 ```
 
-설치 후 별도 설정 없이 바로 동작합니다. Claude Code CLI의 인증 정보를 그대로 사용합니다.
+설치 시 자동으로 처리되는 항목:
+- 데이터 디렉토리(`~/.claude/daily-journal/`) 생성
+- `user-config.json` 기본값으로 생성 (이미 존재하면 건너뜀)
+- Claude Code Stop 훅 등록
+- Task Scheduler 등록 (매일 `schedule.end` 시간에 일지 생성)
+- `dj` CLI 전역 등록
+
+설치 후 `~/.claude/daily-journal/user-config.json`을 열어 설정을 변경할 수 있습니다.
 
 ## CLI 명령어
 
@@ -34,6 +41,7 @@ dj config              # 현재 설정 확인
 dj logs                # 일지 생성 성공/실패 기록 확인
 dj write-journal       # 오늘 일지 수동 생성
 dj retry               # 실패한 날짜의 일지 재생성
+dj setup               # 설정값 적용
 ```
 
 ## 설정 커스터마이징
@@ -90,4 +98,5 @@ dj retry               # 실패한 날짜의 일지 재생성
 node ~/.claude/plugins/daily-journal/dist/setup.js
 ```
 
-setup을 재실행하면 Stop 훅과 Task Scheduler가 재등록됩니다.
+
+setup 시 Stop 훅과 Task Scheduler가 재등록됩니다. `user-config.json`은 이미 존재하면 덮어쓰지 않습니다.

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { loadConfig } from './config';
+import {execSync} from "child_process";
 
 const HOME = os.homedir();
 const CLAUDE_DIR = path.join(HOME, '.claude');
@@ -54,7 +55,6 @@ function registerTaskScheduler(endTime: string): void {
     `/f`,
   ].join(' ');
 
-  const { execSync } = require('child_process');
   try {
     execSync(deleteCmd, { stdio: 'ignore' });
   } catch { /* 없으면 무시 */ }
@@ -63,20 +63,51 @@ function registerTaskScheduler(endTime: string): void {
   console.log(`✓ Task Scheduler 등록 완료 (매일 ${endTime})`);
 }
 
+function createUserConfigIfAbsent(): void {
+  const userConfigPath = path.join(DATA_DIR, 'user-config.json');
+  if (fs.existsSync(userConfigPath)) return;
+
+  const defaultConfig = {
+    schedule: {
+      start: '09:00',
+      end: '18:00',
+    },
+    summary: {
+      use: true,
+      prompt: '다음 Claude 응답을 핵심만 1~2줄로 요약해줘. 변경된 파일, 해결한 문제 위주로.',
+    },
+    journal: {
+      prompt: '아래 작업 요약 목록을 바탕으로 오늘의 개발 일지를 마크다운으로 작성해줘.',
+      output_dir: '',
+    },
+    cleanup: false,
+    save: true,
+  };
+
+  fs.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
+  console.log(`✓ 사용자 설정 파일 생성: ${userConfigPath}`);
+}
+
 function main(): void {
+  setup();
+}
+
+export function setup(): void {
   // 1. 데이터 디렉토리 생성
   fs.mkdirSync(DATA_DIR, { recursive: true });
   console.log(`✓ 데이터 디렉토리 생성: ${DATA_DIR}`);
 
-  // 2. Stop 훅 등록
+  // 2. user-config.json 생성 (없을 때만)
+  createUserConfigIfAbsent();
+
+  // 3. Stop 훅 등록
   registerStopHook();
 
-  // 3. Task Scheduler 등록
+  // 4. Task Scheduler 등록
   const config = loadConfig();
   registerTaskScheduler(config.schedule.end);
 
-  // 4. 전역 CLI 등록 (dj 명령어)
-  const { execSync } = require('child_process');
+  // 5. 전역 CLI 등록 (dj 명령어)
   try {
     execSync('npm link', { cwd: PLUGIN_DIR, stdio: 'ignore' });
     console.log('✓ CLI 전역 등록 완료 (dj 명령어 사용 가능)');
@@ -94,4 +125,8 @@ function main(): void {
   console.log('   ─────────────────────────────────────────────────');
 }
 
-main();
+const isDirectRun = process.argv[1]?.endsWith('setup.js') ||
+    process.argv[1]?.endsWith('setup.ts');
+if (isDirectRun) {
+  main();
+}

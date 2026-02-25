@@ -118,9 +118,32 @@ function registerTaskScheduler(endTime) {
   execSync(createCmd, { stdio: "inherit" });
   console.log(`\u2713 Task Scheduler \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
 }
+function createUserConfigIfAbsent() {
+  const userConfigPath = path2.join(DATA_DIR2, "user-config.json");
+  if (fs2.existsSync(userConfigPath)) return;
+  const defaultConfig = {
+    schedule: {
+      start: "09:00",
+      end: "18:00"
+    },
+    summary: {
+      use: true,
+      prompt: "\uB2E4\uC74C Claude \uC751\uB2F5\uC744 \uD575\uC2EC\uB9CC 1~2\uC904\uB85C \uC694\uC57D\uD574\uC918. \uBCC0\uACBD\uB41C \uD30C\uC77C, \uD574\uACB0\uD55C \uBB38\uC81C \uC704\uC8FC\uB85C."
+    },
+    journal: {
+      prompt: "\uC544\uB798 \uC791\uC5C5 \uC694\uC57D \uBAA9\uB85D\uC744 \uBC14\uD0D5\uC73C\uB85C \uC624\uB298\uC758 \uAC1C\uBC1C \uC77C\uC9C0\uB97C \uB9C8\uD06C\uB2E4\uC6B4\uC73C\uB85C \uC791\uC131\uD574\uC918.",
+      output_dir: ""
+    },
+    cleanup: false,
+    save: true
+  };
+  fs2.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
+  console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
+}
 function main() {
   fs2.mkdirSync(DATA_DIR2, { recursive: true });
   console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR2}`);
+  createUserConfigIfAbsent();
   registerStopHook();
   const config = loadConfig();
   registerTaskScheduler(config.schedule.end);
