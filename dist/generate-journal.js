@@ -200,7 +200,6 @@ function generateJournalForDate(date, config) {
   const dateDir = path2.join(config.journal.output_dir, date);
   const historyDir = path2.join(dateDir, "history");
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  recordRunHistory({ date, status: "create", timestamp });
   if (!fs2.existsSync(historyDir)) {
     console.log(`  \uB370\uC774\uD130 \uC5C6\uC74C (history \uB514\uB809\uD1A0\uB9AC \uC5C6\uC74C)`);
     recordRunHistory({ date, status: "no_data", timestamp });
@@ -214,7 +213,7 @@ function generateJournalForDate(date, config) {
   if (!journalContent) return;
   fs2.mkdirSync(dateDir, { recursive: true });
   fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
-  recordRunHistory({ date, status: "success", timestamp, entry_count: entryCount });
+  recordRunHistory({ date, status: "success", timestamp });
   console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   if (config.cleanup && date !== today) {

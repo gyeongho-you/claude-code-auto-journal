@@ -195,7 +195,6 @@ function generateJournalForDate(date, config) {
   const dateDir = path2.join(config.journal.output_dir, date);
   const historyDir = path2.join(dateDir, "history");
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  recordRunHistory({ date, status: "create", timestamp });
   if (!fs2.existsSync(historyDir)) {
     console.log(`  \uB370\uC774\uD130 \uC5C6\uC74C (history \uB514\uB809\uD1A0\uB9AC \uC5C6\uC74C)`);
     recordRunHistory({ date, status: "no_data", timestamp });
@@ -209,7 +208,7 @@ function generateJournalForDate(date, config) {
   if (!journalContent) return;
   fs2.mkdirSync(dateDir, { recursive: true });
   fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
-  recordRunHistory({ date, status: "success", timestamp, entry_count: entryCount });
+  recordRunHistory({ date, status: "success", timestamp });
   console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   if (config.cleanup && date !== today) {
@@ -286,7 +285,6 @@ var path3 = __toESM(require("path"));
 var import_child_process2 = require("child_process");
 var HOME = os2.homedir();
 var CLAUDE_DIR = path3.join(HOME, ".claude");
-var DATA_DIR2 = path3.join(HOME, ".claude", "daily-journal");
 var PLUGIN_DIR = path3.join(CLAUDE_DIR, "plugins", "daily-journal");
 var SETTINGS_PATH = path3.join(CLAUDE_DIR, "settings.json");
 function registerStopHook() {
@@ -314,6 +312,13 @@ function registerStopHook() {
   console.log("\u2713 Stop \uD6C5 \uB4F1\uB85D \uC644\uB8CC");
 }
 function registerTaskScheduler(endTime) {
+  if (process.platform === "win32") {
+    registerWindowsScheduler(endTime);
+  } else {
+    registerCronJob(endTime);
+  }
+}
+function registerWindowsScheduler(endTime) {
   const [hour, minute] = endTime.split(":");
   const generateScript = path3.join(PLUGIN_DIR, "dist", "generate-journal.js");
   const taskName = "DailyJournalPlugin";
@@ -331,8 +336,25 @@ function registerTaskScheduler(endTime) {
   (0, import_child_process2.execSync)(createCmd, { stdio: "inherit" });
   console.log(`\u2713 Task Scheduler \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
 }
+function registerCronJob(endTime) {
+  const [hour, minute] = endTime.split(":");
+  const generateScript = path3.join(PLUGIN_DIR, "dist", "generate-journal.js");
+  const cronLine = `${minute} ${hour} * * * node "${generateScript}" # daily-journal-plugin`;
+  let currentCrontab = "";
+  try {
+    currentCrontab = (0, import_child_process2.execSync)("crontab -l", { encoding: "utf-8" });
+  } catch {
+  }
+  const filtered = currentCrontab.split("\n").filter((l) => !l.includes("daily-journal-plugin")).filter(Boolean);
+  filtered.push(cronLine);
+  const tmpFile = path3.join(os2.tmpdir(), "daily-journal-crontab.tmp");
+  fs3.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
+  (0, import_child_process2.execSync)(`crontab "${tmpFile}"`);
+  fs3.unlinkSync(tmpFile);
+  console.log(`\u2713 cron \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
+}
 function createUserConfigIfAbsent() {
-  const userConfigPath = path3.join(DATA_DIR2, "user-config.json");
+  const userConfigPath = path3.join(DATA_DIR, "user-config.json");
   if (fs3.existsSync(userConfigPath)) return;
   const defaultConfig = {
     schedule: {
@@ -357,8 +379,8 @@ function main2() {
   setup();
 }
 function setup() {
-  fs3.mkdirSync(DATA_DIR2, { recursive: true });
-  console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR2}`);
+  fs3.mkdirSync(DATA_DIR, { recursive: true });
+  console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR}`);
   createUserConfigIfAbsent();
   registerStopHook();
   const config = loadConfig();
@@ -371,7 +393,7 @@ function setup() {
     console.warn(`  cd "${PLUGIN_DIR}" && npm link`);
   }
   console.log("\n\u2705 daily-journal \uD50C\uB7EC\uADF8\uC778 \uC124\uCE58 \uC644\uB8CC");
-  console.log(`   \uB370\uC774\uD130 \uC704\uCE58: ${DATA_DIR2}`);
+  console.log(`   \uB370\uC774\uD130 \uC704\uCE58: ${DATA_DIR}`);
   console.log(`   \uC77C\uC9C0 \uC0DD\uC131 \uC2DC\uAC04: \uB9E4\uC77C ${config.schedule.end}`);
   console.log("\n   \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C: ~/.claude/daily-journal/user-config.json");
   console.log("\n   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
@@ -414,7 +436,7 @@ function cmdConfig() {
   console.log(`                       \uD6C5 \uD65C\uC131\uD654 \uC2DC\uC791 \uC2DC\uAC04. \uC774 \uC2DC\uAC04 \uC774\uC804 \uB300\uD654\uB294 \uAE30\uB85D \uC548 \uD568 
 `);
   console.log(`  schedule.end       : "${config.schedule.end}"`);
-  console.log(`                       \uD6C5 \uD65C\uC131\uD654 \uC885\uB8CC \uC2DC\uAC04. Task Scheduler\uAC00 \uC774 \uC2DC\uAC04\uC5D0 \uC77C\uC9C0 \uC0DD\uC131`);
+  console.log(`                       \uD6C5 \uD65C\uC131\uD654 \uC885\uB8CC \uC2DC\uAC04. \uC2A4\uCF00\uC974\uB7EC\uAC00 \uC774 \uC2DC\uAC04\uC5D0 \uC77C\uC9C0 \uC0DD\uC131`);
   console.log(`                       \uBCC0\uACBD \uC2DC setup \uC7AC\uC2E4\uD589 \uD544\uC694 
 `);
   console.log(`  summary.use        : ${config.summary.use}`);
@@ -446,19 +468,26 @@ function cmdLogs() {
     console.log("\uC2E4\uD589 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
     return;
   }
-  const statusIcon = {
-    create: "\u25CB",
-    success: "\u2713",
-    failed: "\u2717",
-    no_data: "-",
-    modified: "~"
-  };
   console.log("\n\uC2E4\uD589 \uAE30\uB85D:\n");
-  for (const entry of entries) {
-    const icon = statusIcon[entry.status] ?? "?";
-    const detail = entry.status === "success" ? `${entry.entry_count}\uAC1C \uD56D\uBAA9` : entry.status === "modified" ? `${entry.entry_count ?? 0}\uAC1C \uD56D\uBAA9 (\uC218\uC815\uB428)` : entry.status === "failed" ? `\uC624\uB958: ${entry.error}` : entry.status === "create" ? "\uC0DD\uC131 \uC911 (\uBBF8\uC644\uB8CC)" : "\uB370\uC774\uD130 \uC5C6\uC74C";
-    console.log(`  ${icon} ${entry.date}  [${entry.status.padEnd(8)}]  ${detail}`);
-  }
+  entries.forEach((entry) => {
+    switch (entry.status) {
+      case "success":
+        console.log(entry.date + " : success");
+        break;
+      case "failed":
+        console.log(entry.date + " : failed / error : " + entry.error);
+        break;
+      case "modified":
+        console.log(entry.date + " : modified");
+        break;
+      case "no_data":
+        console.log(entry.date + " : no_data");
+        break;
+      case "create":
+        console.log(entry.date + " : create");
+        break;
+    }
+  });
   console.log("");
   const total = entries.length;
   const success = entries.filter((e) => e.status === "success").length;
@@ -470,14 +499,14 @@ function cmdLogs() {
 }
 function cmdRetry() {
   const history = loadRunHistory();
-  const failed = Object.values(history).filter((e) => e.status === "failed").sort((a, b) => a.date.localeCompare(b.date));
+  const failed = Object.values(history).filter((e) => e.status === "failed" || e.status === "modified").sort((a, b) => a.date.localeCompare(b.date));
   if (failed.length === 0) {
-    console.log("\uC7AC\uC0DD\uC131\uD560 \uC2E4\uD328 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    console.log("\uC7AC\uC0DD\uC131\uD560 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
     return;
   }
   const config = loadConfig();
   console.log(`
-\uC2E4\uD328 \uD56D\uBAA9 ${failed.length}\uAC74 \uC7AC\uC0DD\uC131 \uC2DC\uC791...
+\uC2E4\uD328/\uC218\uC815 \uD56D\uBAA9 ${failed.length}\uAC74 \uC7AC\uC0DD\uC131 \uC2DC\uC791...
 `);
   for (const entry of failed) {
     console.log(`  ${entry.date}:`);
@@ -490,8 +519,8 @@ function cmdHelp() {
   console.log("  help               \uC774 \uB3C4\uC6C0\uB9D0 \uD45C\uC2DC");
   console.log("  config             \uD604\uC7AC \uC124\uC815 \uBC0F \uC635\uC158 \uD655\uC778");
   console.log("  logs               \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
-  console.log("  write-journal      \uC77C\uC9C0 \uC0DD\uC131 (\uC0DD\uC131, \uC2E4\uD328, \uC218\uC815\uB41C \uC77C\uC790\uC758 \uC77C\uC9C0\uB97C \uC0DD\uC131)");
-  console.log("  retry              \uC2E4\uD328\uD55C \uB0A0\uC9DC\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
+  console.log("  write-journal      \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131");
+  console.log("  retry              \uC2E4\uD328\uD55C \uB0A0\uC9DC\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131 (\uC0DD\uC131, \uC2E4\uD328, \uC218\uC815\uB41C \uC77C\uC790\uC758 \uC77C\uC9C0\uB97C \uC0DD\uC131)");
   console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9\n");
 }
 var command = process.argv[2];
