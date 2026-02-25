@@ -6,15 +6,12 @@
     "dj": "dist/cli.js"
   },
   "scripts": {
-    "build": "esbuild src/stop-hook.ts src/generate-journal.ts src/setup.ts src/cli.ts --bundle --platform=node --outdir=dist --external:@anthropic-ai/sdk",
+    "build": "esbuild src/stop-hook.ts src/generate-journal.ts src/setup.ts src/cli.ts --bundle --platform=node --outdir=dist",
     "build:bundle": "esbuild src/stop-hook.ts --bundle --platform=node --outfile=dist/stop-hook.js && esbuild src/generate-journal.ts --bundle --platform=node --outfile=dist/generate-journal.js && esbuild src/setup.ts --bundle --platform=node --outfile=dist/setup.js && esbuild src/cli.ts --bundle --platform=node --outfile=dist/cli.js"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.36.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "esbuild": "^0.24.0",
+    "esbuild": "0.25.0",
     "typescript": "^5.7.0"
   }
 }

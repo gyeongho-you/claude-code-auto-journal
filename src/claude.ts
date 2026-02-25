@@ -10,7 +10,7 @@ export function callClaude(input: string) : SpawnSyncReturns<string> {
     return  spawnSync('claude', ['--print'], {
         input,
         encoding: 'utf-8',
-        timeout: 60000,
+        timeout: 180000,
         shell: true,
         env
     });

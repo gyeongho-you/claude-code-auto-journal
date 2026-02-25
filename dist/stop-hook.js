@@ -79,7 +79,8 @@ function loadConfig() {
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
     };
-  } catch {
+  } catch (e) {
+    logError(`user-config.json \uD30C\uC2F1 \uC2E4\uD328: ${e}`);
     return defaultConfig;
   }
 }
@@ -141,7 +142,7 @@ function callClaude(input) {
   return (0, import_child_process.spawnSync)("claude", ["--print"], {
     input,
     encoding: "utf-8",
-    timeout: 6e4,
+    timeout: 18e4,
     shell: true,
     env
   });

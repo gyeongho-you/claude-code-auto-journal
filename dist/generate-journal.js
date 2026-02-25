@@ -89,7 +89,8 @@ function loadConfig() {
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
     };
-  } catch {
+  } catch (e) {
+    logError(`user-config.json \uD30C\uC2F1 \uC2E4\uD328: ${e}`);
     return defaultConfig;
   }
 }
@@ -137,7 +138,7 @@ function callClaude(input) {
   return (0, import_child_process.spawnSync)("claude", ["--print"], {
     input,
     encoding: "utf-8",
-    timeout: 6e4,
+    timeout: 18e4,
     shell: true,
     env
   });
@@ -154,7 +155,15 @@ function loadHistoryByProject(historyDir) {
   for (const file of files) {
     const project = file.replace(".jsonl", "");
     const lines = fs2.readFileSync(path2.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
-    result[project] = lines.map((l) => JSON.parse(l));
+    result[project] = lines.flatMap((l) => {
+      try {
+        return [JSON.parse(l)];
+      } catch (e) {
+        logError("\uC77C\uC9C0 \uC791\uC131\uC911 \uC190\uC0C1\uB41C history Skip: " + l);
+        console.error("\uC77C\uC9C0 \uC791\uC131\uC911 \uC190\uC0C1\uB41C history \uC874\uC7AC", e);
+        return [];
+      }
+    });
   }
   return result;
 }
@@ -225,14 +234,20 @@ function generateJournalForDate(date, config) {
   }
   const historyByProject = loadHistoryByProject(historyDir);
   const entryCount = Object.values(historyByProject).reduce((sum, e) => sum + e.length, 0);
-  const data = buildPromptData(historyByProject);
-  console.log(`  \uD56D\uBAA9 ${entryCount}\uAC1C \u2192 \uC815\uB9AC\uC911 ...`);
-  const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
-  if (!journalContent) return;
-  fs2.mkdirSync(dateDir, { recursive: true });
-  fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
-  recordRunHistory({ date, status: "success", timestamp });
-  console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
+  if (entryCount > 0) {
+    const data = buildPromptData(historyByProject);
+    console.log(`  \uD56D\uBAA9 ${entryCount}\uAC1C \u2192 \uC815\uB9AC\uC911 ...`);
+    const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
+    if (!journalContent) return;
+    fs2.mkdirSync(dateDir, { recursive: true });
+    fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
+    recordRunHistory({ date, status: "success", timestamp });
+    console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
+  } else {
+    console.log(`  \uC815\uB9AC\uD560 \uD56D\uBAA9\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    recordRunHistory({ date, status: "no_data", timestamp });
+    return;
+  }
   if (config.cleanup && date !== getDateString(config.timeZone)) {
     fs2.rmSync(historyDir, { recursive: true, force: true });
   }

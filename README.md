@@ -42,7 +42,7 @@ dj help                # 도움말 표시
 dj config              # 현재 설정 확인
 dj logs                # 일지 생성 성공/실패 기록 확인
 dj write-journal       # 오늘 일지 수동 생성
-dj retry               # 실패한 날짜의 일지 재생성
+dj retry               # 실패/수정된 날짜의 일지 재생성
 dj setup               # 설정값 적용
 ```
 
@@ -74,17 +74,17 @@ dj setup               # 설정값 적용
 
 > `stylePrompt`는 고정된 지시문에 덧붙이는 스타일 가이드입니다. 형식, 길이, 언어 등 출력 스타일만 지정하면 됩니다.
 
-| 옵션 | 기본값 | 설명                                                                                                                                                  |
-|------|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `schedule.use` | `true` | `false`로 설정하면 스케줄러 등록 안 함. 수동으로 `dj write-journal` 사용. **변경 시 setup 재실행 필요**                                                                        |
-| `schedule.start` | `"09:00"` | 훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함                                                                                                                     |
-| `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. 스케줄러가 이 시간에 일지 생성. **변경 시 setup 재실행 필요**                                                                                               |
-| `summary.use` | `true` | `false`로 설정하면 응답 원본을 저장 (stop-hook에서 claude 호출 없음), true일 경우 요약본으로 변경하여 저장 ( 일상적인 대화는 자동으로 필터링되어 저장을 하지 않음 ). 단, 대화가 많으면 일지 생성 시 컨텍스트 초과로 청크 분할 처리됨 |
-| `summary.stylePrompt` | 참고 | `summary.use: true`일 때 요약 스타일 지정 (형식, 길이 등)                                                                                                         |
-| `journal.stylePrompt` | 참고 | 일지 생성 시 출력 스타일 지정 (형식, 구조 등)                                                                                                                        |
-| `journal.output_dir` | `""` | 일지 저장 경로. 비워두면 `~/.claude/daily-journal/data` 사용                                                                                                    |
-| `cleanup` | `false` | 일지 생성 후 히스토리 파일 삭제 여부. `true`로 설정하면 `.jsonl` 파일 삭제 (당일 생성된 history는 삭제 안 됨)                                                                         |
-| `save` | `true` | 대화 내용 저장 여부. `false`로 설정하면 stop-hook이 아무것도 기록하지 않음                                                                                                  |
+| 옵션 | 기본값 | 설명                                                                                                                                        |
+|------|--------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `schedule.use` | `true` | `false`로 설정하면 스케줄러 등록 안 함. 수동으로 `dj write-journal` 사용. **변경 시 setup 재실행 필요**                                                              |
+| `schedule.start` | `"09:00"` | 훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함                                                                                                           |
+| `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. 스케줄러가 이 시간에 일지 생성. **변경 시 setup 재실행 필요**                                                                                     |
+| `summary.use` | `true` | `true` 시 Claude가 응답을 요약해 저장. `stylePrompt`로 SKIP을 반환하도록 설정하면 해당 대화는 저장하지 않음. `false` 시 응답 원본을 그대로 저장 (Claude 호출 없음, 토큰 절약) |
+| `summary.stylePrompt` | 참고 | `summary.use: true`일 때 요약 스타일 지정 (형식, 길이 등)                                                                                               |
+| `journal.stylePrompt` | 참고 | 일지 생성 시 출력 스타일 지정 (형식, 구조 등)                                                                                                              |
+| `journal.output_dir` | `""` | 일지 저장 경로. 비워두면 `~/.claude/daily-journal/data` 사용                                                                                          |
+| `cleanup` | `false` | 일지 생성 후 히스토리 파일 삭제 여부. `true`로 설정하면 `.jsonl` 파일 삭제 (당일 생성된 history는 삭제 안 됨)                                                               |
+| `save` | `true` | 대화 내용 저장 여부. `false`로 설정하면 stop-hook이 아무것도 기록하지 않음                                                                                        |
 | `timeZone` | `"Asia/Seoul"` | 날짜/시간 기준 타임존. [IANA 타임존](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) 형식 사용 (예: `"America/New_York"`). 유효하지 않으면 기본값으로 폴백 |
 
 ## 데이터 저장 위치

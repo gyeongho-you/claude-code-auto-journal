@@ -78,7 +78,9 @@ function unregisterTaskScheduler(): void {
 }
 
 function registerWindowsScheduler(endTime: string): void {
-  const [hour, minute] = endTime.split(':');
+  const [h, m] = endTime.split(':');
+  const hour = h.padStart(2, '0');
+  const minute = m.padStart(2, '0');
   const generateScript = path.join(PLUGIN_DIR, 'dist', 'generate-journal.js');
   const taskName = 'DailyJournalPlugin';
 

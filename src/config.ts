@@ -57,7 +57,8 @@ export function loadConfig(): Config {
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone),
     };
-  } catch {
+  } catch (e) {
+    logError(`user-config.json 파싱 실패: ${e}`);
     return defaultConfig;
   }
 }

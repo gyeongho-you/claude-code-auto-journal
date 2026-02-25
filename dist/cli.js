@@ -80,7 +80,8 @@ function loadConfig() {
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
     };
-  } catch {
+  } catch (e) {
+    logError(`user-config.json \uD30C\uC2F1 \uC2E4\uD328: ${e}`);
     return defaultConfig;
   }
 }
@@ -132,7 +133,7 @@ function callClaude(input) {
   return (0, import_child_process.spawnSync)("claude", ["--print"], {
     input,
     encoding: "utf-8",
-    timeout: 6e4,
+    timeout: 18e4,
     shell: true,
     env
   });
@@ -149,7 +150,15 @@ function loadHistoryByProject(historyDir) {
   for (const file of files) {
     const project = file.replace(".jsonl", "");
     const lines = fs2.readFileSync(path2.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
-    result[project] = lines.map((l) => JSON.parse(l));
+    result[project] = lines.flatMap((l) => {
+      try {
+        return [JSON.parse(l)];
+      } catch (e) {
+        logError("\uC77C\uC9C0 \uC791\uC131\uC911 \uC190\uC0C1\uB41C history Skip: " + l);
+        console.error("\uC77C\uC9C0 \uC791\uC131\uC911 \uC190\uC0C1\uB41C history \uC874\uC7AC", e);
+        return [];
+      }
+    });
   }
   return result;
 }
@@ -220,14 +229,20 @@ function generateJournalForDate(date, config) {
   }
   const historyByProject = loadHistoryByProject(historyDir);
   const entryCount = Object.values(historyByProject).reduce((sum, e) => sum + e.length, 0);
-  const data = buildPromptData(historyByProject);
-  console.log(`  \uD56D\uBAA9 ${entryCount}\uAC1C \u2192 \uC815\uB9AC\uC911 ...`);
-  const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
-  if (!journalContent) return;
-  fs2.mkdirSync(dateDir, { recursive: true });
-  fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
-  recordRunHistory({ date, status: "success", timestamp });
-  console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
+  if (entryCount > 0) {
+    const data = buildPromptData(historyByProject);
+    console.log(`  \uD56D\uBAA9 ${entryCount}\uAC1C \u2192 \uC815\uB9AC\uC911 ...`);
+    const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
+    if (!journalContent) return;
+    fs2.mkdirSync(dateDir, { recursive: true });
+    fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
+    recordRunHistory({ date, status: "success", timestamp });
+    console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
+  } else {
+    console.log(`  \uC815\uB9AC\uD560 \uD56D\uBAA9\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    recordRunHistory({ date, status: "no_data", timestamp });
+    return;
+  }
   if (config.cleanup && date !== getDateString(config.timeZone)) {
     fs2.rmSync(historyDir, { recursive: true, force: true });
   }
@@ -365,7 +380,9 @@ function unregisterTaskScheduler() {
   console.log("- \uC2A4\uCF00\uC974\uB7EC \uC81C\uAC70 \uC644\uB8CC");
 }
 function registerWindowsScheduler(endTime) {
-  const [hour, minute] = endTime.split(":");
+  const [h, m] = endTime.split(":");
+  const hour = h.padStart(2, "0");
+  const minute = m.padStart(2, "0");
   const generateScript = path3.join(PLUGIN_DIR, "dist", "generate-journal.js");
   const taskName = "DailyJournalPlugin";
   const deleteCmd = `schtasks /delete /tn "${taskName}" /f 2>nul`;
@@ -487,36 +504,37 @@ function cmdConfig() {
   console.log(`
 \uD604\uC7AC \uC124\uC815 (user-config.json ${hasUserConfig ? "\uC801\uC6A9\uB428" : "\uC5C6\uC74C \u2014 \uAE30\uBCF8\uAC12 \uC0AC\uC6A9"})
 `);
-  console.log(`  schedule.use       : ${config.schedule.use}`);
-  console.log(`                       false \uC2DC \uC2A4\uCF00\uC974\uB7EC \uB4F1\uB85D \uC548 \uD568. \uC218\uB3D9\uC73C\uB85C dj write-journal \uC0AC\uC6A9 ( \uBCC0\uACBD \uC2DC setup \uD544\uC694 )
+  console.log(`  schedule.use         : ${config.schedule.use}`);
+  console.log(`                           - false \uC2DC \uC2A4\uCF00\uC974\uB7EC \uB4F1\uB85D \uC548 \uD568. \uC218\uB3D9\uC73C\uB85C dj write-journal \uC0AC\uC6A9 ( \uBCC0\uACBD \uC2DC setup \uD544\uC694 )
 `);
-  console.log(`  schedule.start     : "${config.schedule.start}"`);
-  console.log(`                       \uD6C5 \uD65C\uC131\uD654 \uC2DC\uC791 \uC2DC\uAC04. \uC774 \uC2DC\uAC04 \uC774\uC804 \uB300\uD654\uB294 \uAE30\uB85D \uC548 \uD568 
+  console.log(`  schedule.start       : "${config.schedule.start}"`);
+  console.log(`                           - \uD6C5 \uD65C\uC131\uD654 \uC2DC\uC791 \uC2DC\uAC04. \uC774 \uC2DC\uAC04 \uC774\uC804 \uB300\uD654\uB294 \uAE30\uB85D \uC548 \uD568 
 `);
-  console.log(`  schedule.end       : "${config.schedule.end}"`);
-  console.log(`                       \uD6C5 \uD65C\uC131\uD654 \uC885\uB8CC \uC2DC\uAC04. \uC2A4\uCF00\uC974\uB7EC\uAC00 \uC774 \uC2DC\uAC04\uC5D0 \uC77C\uC9C0 \uC0DD\uC131`);
-  console.log(`                       \uBCC0\uACBD \uC2DC setup \uC7AC\uC2E4\uD589 \uD544\uC694 
+  console.log(`  schedule.end         : "${config.schedule.end}"`);
+  console.log(`                           - \uD6C5 \uD65C\uC131\uD654 \uC885\uB8CC \uC2DC\uAC04. \uC2A4\uCF00\uC974\uB7EC\uAC00 \uC774 \uC2DC\uAC04\uC5D0 \uC77C\uC9C0 \uC0DD\uC131`);
+  console.log(`                           - \uBCC0\uACBD \uC2DC setup \uC7AC\uC2E4\uD589 \uD544\uC694 
 `);
   console.log(`  summary.use          : ${config.summary.use}`);
-  console.log(`                       false \uC2DC \uC751\uB2F5 \uC6D0\uBCF8\uC744 \uC800\uC7A5 (false\uC2DC claude \uC11C\uBE0C\uC138\uC158\uC744 \uC0AC\uC6A9\uD558\uC9C0 \uC54A\uC74C[\uD1A0\uD070\uC808\uC57D]) 
+  console.log(`                           - true \uC2DC Claude\uAC00 \uC751\uB2F5\uC744 \uC694\uC57D\uD574 \uC800\uC7A5. \`stylePrompt\`\uB85C SKIP\uC744 \uBC18\uD658\uD558\uB3C4\uB85D \uC124\uC815\uD558\uBA74 \uD574\uB2F9 \uB300\uD654\uB294 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC74C.`);
+  console.log(`                           - false \uC2DC \uC751\uB2F5 \uC6D0\uBCF8\uC744 \uADF8\uB300\uB85C \uC800\uC7A5 (Claude \uD638\uCD9C \uC5C6\uC74C, \uD1A0\uD070 \uC808\uC57D) 
 `);
   console.log(`  summary.stylePrompt  : "${config.summary.stylePrompt.length > 60 ? config.summary.stylePrompt.slice(0, 60) + "..." : config.summary.stylePrompt}"`);
-  console.log(`                       \uB300\uD654 \uC885\uB8CC\uB9C8\uB2E4 \uC751\uB2F5\uC744 \uC694\uC57D\uD560 \uB54C \uC4F0\uB294 \uD504\uB86C\uD504\uD2B8 
+  console.log(`                           - \uB300\uD654 \uC885\uB8CC\uB9C8\uB2E4 \uC751\uB2F5\uC744 \uC694\uC57D\uD560 \uB54C \uC4F0\uB294 \uD504\uB86C\uD504\uD2B8 
 `);
   console.log(`  journal.output_dir   : "${config.journal.output_dir}"`);
-  console.log(`                       \uC77C\uC9C0 \uC800\uC7A5 \uACBD\uB85C. YYYY-MM-DD/journal.md \uD615\uD0DC\uB85C \uC800\uC7A5\uB428 
+  console.log(`                           - \uC77C\uC9C0 \uC800\uC7A5 \uACBD\uB85C. YYYY-MM-DD/journal.md \uD615\uD0DC\uB85C \uC800\uC7A5\uB428 
 `);
   console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60) + "..." : config.journal.stylePrompt}"`);
-  console.log(`                       \uC77C\uC9C0 \uC791\uC131 \uC2A4\uD0C0\uC77C \uB4F1\uC744 \uC815\uD558\uB294 \uD504\uB86C\uD504\uD2B8 
+  console.log(`                           - \uC77C\uC9C0 \uC791\uC131 \uC2A4\uD0C0\uC77C \uB4F1\uC744 \uC815\uD558\uB294 \uD504\uB86C\uD504\uD2B8 
 `);
   console.log(`  cleanup              : ${config.cleanup}`);
-  console.log(`                       \uC77C\uC9C0 \uC0DD\uC131 \uD6C4 history \uD30C\uC77C \uC0AD\uC81C \uC5EC\uBD80 ( \uB2F9\uC77C \uC0DD\uC131\uB41C history\uB294 \uC0AD\uC81C\uB418\uC9C0 \uC54A\uC74C ) 
+  console.log(`                           - \uC77C\uC9C0 \uC0DD\uC131 \uD6C4 history \uD30C\uC77C \uC0AD\uC81C \uC5EC\uBD80 ( \uB2F9\uC77C \uC0DD\uC131\uB41C history\uB294 \uC0AD\uC81C\uB418\uC9C0 \uC54A\uC74C ) 
 `);
   console.log(`  save                 : ${config.save}`);
-  console.log(`                       prompt\uB97C \uC800\uC7A5\uD560\uC9C0 \uC5EC\uBD80 ( false \uC2DC \uC800\uC7A5\uC774 \uC548\uB428 ) 
+  console.log(`                           - prompt\uB97C \uC800\uC7A5\uD560\uC9C0 \uC5EC\uBD80 ( false \uC2DC \uC800\uC7A5\uC774 \uC548\uB428 ) 
 `);
   console.log(`  timeZone             : ${config.timeZone}`);
-  console.log(`                       \uC6D0\uD558\uB294 timeZone \uC124\uC815 ( \uBBF8\uC124\uC815 \uB610\uB294 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC744 \uC2DC \uAE30\uBCF8 Asia/Seoul\uB85C \uC124\uC815\uB428 ) 
+  console.log(`                           - \uC6D0\uD558\uB294 timeZone \uC124\uC815 ( \uBBF8\uC124\uC815 \uB610\uB294 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC744 \uC2DC \uAE30\uBCF8 Asia/Seoul\uB85C \uC124\uC815\uB428 ) 
 `);
   console.log(`
   \uC124\uC815 \uD30C\uC77C \uC704\uCE58: ${userConfigPath}

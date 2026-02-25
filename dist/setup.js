@@ -90,7 +90,8 @@ function loadConfig() {
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
     };
-  } catch {
+  } catch (e) {
+    logError(`user-config.json \uD30C\uC2F1 \uC2E4\uD328: ${e}`);
     return defaultConfig;
   }
 }
@@ -168,7 +169,9 @@ function unregisterTaskScheduler() {
   console.log("- \uC2A4\uCF00\uC974\uB7EC \uC81C\uAC70 \uC644\uB8CC");
 }
 function registerWindowsScheduler(endTime) {
-  const [hour, minute] = endTime.split(":");
+  const [h, m] = endTime.split(":");
+  const hour = h.padStart(2, "0");
+  const minute = m.padStart(2, "0");
   const generateScript = path2.join(PLUGIN_DIR, "dist", "generate-journal.js");
   const taskName = "DailyJournalPlugin";
   const deleteCmd = `schtasks /delete /tn "${taskName}" /f 2>nul`;

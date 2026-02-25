@@ -16,10 +16,18 @@ function loadHistoryByProject(historyDir: string): Record<string, HistoryEntry[]
   const files = fs.readdirSync(historyDir).filter(f => f.endsWith('.jsonl'));
 
   for (const file of files) {
-    const project = file.replace('.jsonl', '');
-    const lines = fs.readFileSync(path.join(historyDir, file), 'utf-8')
-      .trim().split('\n').filter(Boolean);
-    result[project] = lines.map(l => JSON.parse(l) as HistoryEntry);
+      const project = file.replace('.jsonl', '');
+      const lines = fs.readFileSync(path.join(historyDir, file), 'utf-8')
+          .trim().split('\n').filter(Boolean);
+      result[project] = lines.flatMap(l => {
+        try {
+          return [JSON.parse(l) as HistoryEntry];
+        } catch (e) {
+          logError("일지 작성중 손상된 history Skip: " + l);
+          console.error("일지 작성중 손상된 history 존재", e);
+          return [];
+        }
+      });
   }
   return result;
 }
@@ -101,20 +109,28 @@ function generateJournalForDate(date: string, config: Config): void {
   const historyByProject = loadHistoryByProject(historyDir);
 
   const entryCount = Object.values(historyByProject).reduce((sum, e) => sum + e.length, 0);
-  const data = buildPromptData(historyByProject);
 
-  console.log(`  항목 ${entryCount}개 → 정리중 ...`);
+  if(entryCount > 0) {
+    const data = buildPromptData(historyByProject);
 
-  const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS
-    ? generateSingle(date, data, config)
-    : generateChunked(date, data, config);
+    console.log(`  항목 ${entryCount}개 → 정리중 ...`);
 
-  if (!journalContent) return;
+    const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS
+        ? generateSingle(date, data, config)
+        : generateChunked(date, data, config);
 
-  fs.mkdirSync(dateDir, { recursive: true });
-  fs.writeFileSync(path.join(dateDir, 'journal.md'), journalContent, 'utf-8');
-  recordRunHistory({ date, status: 'success', timestamp });
-  console.log(`  ✓ 완료 → ${path.join(dateDir, 'journal.md')}`);
+    if (!journalContent) return;
+
+    fs.mkdirSync(dateDir, { recursive: true });
+    fs.writeFileSync(path.join(dateDir, 'journal.md'), journalContent, 'utf-8');
+
+    recordRunHistory({ date, status: 'success', timestamp });
+    console.log(`  ✓ 완료 → ${path.join(dateDir, 'journal.md')}`);
+  }else {
+    console.log(`  정리할 항목이 존재하지 않습니다.`);
+    recordRunHistory({ date, status: 'no_data', timestamp });
+    return;
+  }
 
   if (config.cleanup && date !== getDateString(config.timeZone)) {
     fs.rmSync(historyDir, { recursive: true, force: true });
