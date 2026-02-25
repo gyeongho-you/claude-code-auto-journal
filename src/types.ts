@@ -1,5 +1,6 @@
 export interface Config {
   schedule: {
+    use: boolean;
     start: string;
     end: string;
   };

@@ -1,5 +1,6 @@
 {
   "schedule": {
+    "use": true,
     "start": "09:00",
     "end": "18:00"
   },

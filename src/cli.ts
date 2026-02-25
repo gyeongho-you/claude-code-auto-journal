@@ -35,6 +35,8 @@ function cmdConfig(): void {
   const hasUserConfig = fs.existsSync(userConfigPath);
 
   console.log(`\n현재 설정 (user-config.json ${hasUserConfig ? '적용됨' : '없음 — 기본값 사용'})\n`);
+  console.log(`  schedule.use       : ${config.schedule.use}`);
+  console.log(`                       false 시 스케쥴러 등록 안 함. 수동으로 dj write-journal 사용 ( 변경 시 setup 필요 )\n`);
   console.log(`  schedule.start     : "${config.schedule.start}"`);
   console.log(`                       훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함 \n`);
   console.log(`  schedule.end       : "${config.schedule.end}"`);
@@ -119,7 +121,7 @@ function cmdHelp(): void {
   console.log('  config             현재 설정 및 옵션 확인');
   console.log('  logs               일지 생성 성공/실패 기록 확인');
   console.log('  write-journal      오늘 일지 수동 생성');
-  console.log('  retry              실패한 날짜의 일지 재생성 (생성, 실패, 수정된 일자의 일지를 생성)');
+  console.log('  retry              일지 생성에 실패한 날짜 들의 일지 재생성');
   console.log('  setup              설정값 적용\n');
 }
 

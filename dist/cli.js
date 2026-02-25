@@ -318,6 +318,33 @@ function registerTaskScheduler(endTime) {
     registerCronJob(endTime);
   }
 }
+function unregisterTaskScheduler() {
+  if (process.platform === "win32") {
+    try {
+      (0, import_child_process2.execSync)(`schtasks /delete /tn "DailyJournalPlugin" /f`, { stdio: "ignore" });
+    } catch {
+    }
+  } else {
+    let currentCrontab = "";
+    try {
+      currentCrontab = (0, import_child_process2.execSync)("crontab -l", { encoding: "utf-8" });
+    } catch {
+    }
+    const filtered = currentCrontab.split("\n").filter((l) => !l.includes("daily-journal-plugin")).filter(Boolean);
+    if (filtered.length > 0) {
+      const tmpFile = path3.join(os2.tmpdir(), "daily-journal-crontab.tmp");
+      fs3.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
+      (0, import_child_process2.execSync)(`crontab "${tmpFile}"`);
+      fs3.unlinkSync(tmpFile);
+    } else {
+      try {
+        (0, import_child_process2.execSync)("crontab -r", { stdio: "ignore" });
+      } catch {
+      }
+    }
+  }
+  console.log("- \uC2A4\uCF00\uC974\uB7EC \uC81C\uAC70 \uC644\uB8CC");
+}
 function registerWindowsScheduler(endTime) {
   const [hour, minute] = endTime.split(":");
   const generateScript = path3.join(PLUGIN_DIR, "dist", "generate-journal.js");
@@ -358,6 +385,7 @@ function createUserConfigIfAbsent() {
   if (fs3.existsSync(userConfigPath)) return;
   const defaultConfig = {
     schedule: {
+      use: true,
       start: "09:00",
       end: "18:00"
     },
@@ -384,7 +412,12 @@ function setup() {
   createUserConfigIfAbsent();
   registerStopHook();
   const config = loadConfig();
-  registerTaskScheduler(config.schedule.end);
+  if (config.schedule.use) {
+    registerTaskScheduler(config.schedule.end);
+  } else {
+    console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70. (daily-journal.schedule.use: false)");
+    unregisterTaskScheduler();
+  }
   try {
     (0, import_child_process2.execSync)("npm link", { cwd: PLUGIN_DIR, stdio: "ignore" });
     console.log("\u2713 CLI \uC804\uC5ED \uB4F1\uB85D \uC644\uB8CC (dj \uBA85\uB839\uC5B4 \uC0AC\uC6A9 \uAC00\uB2A5)");
@@ -394,7 +427,9 @@ function setup() {
   }
   console.log("\n\u2705 daily-journal \uD50C\uB7EC\uADF8\uC778 \uC124\uCE58 \uC644\uB8CC");
   console.log(`   \uB370\uC774\uD130 \uC704\uCE58: ${DATA_DIR}`);
-  console.log(`   \uC77C\uC9C0 \uC0DD\uC131 \uC2DC\uAC04: \uB9E4\uC77C ${config.schedule.end}`);
+  if (config.schedule.use) {
+    console.log(`   \uC77C\uC9C0 \uC0DD\uC131 \uC2DC\uAC04: \uB9E4\uC77C ${config.schedule.end}`);
+  }
   console.log("\n   \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C: ~/.claude/daily-journal/user-config.json");
   console.log("\n   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
   console.log("   \uB3C4\uC6C0\uB9D0 dj help");
@@ -431,6 +466,9 @@ function cmdConfig() {
   const hasUserConfig = fs4.existsSync(userConfigPath);
   console.log(`
 \uD604\uC7AC \uC124\uC815 (user-config.json ${hasUserConfig ? "\uC801\uC6A9\uB428" : "\uC5C6\uC74C \u2014 \uAE30\uBCF8\uAC12 \uC0AC\uC6A9"})
+`);
+  console.log(`  schedule.use       : ${config.schedule.use}`);
+  console.log(`                       false \uC2DC \uC2A4\uCF00\uC974\uB7EC \uB4F1\uB85D \uC548 \uD568. \uC218\uB3D9\uC73C\uB85C dj write-journal \uC0AC\uC6A9 ( \uBCC0\uACBD \uC2DC setup \uD544\uC694 )
 `);
   console.log(`  schedule.start     : "${config.schedule.start}"`);
   console.log(`                       \uD6C5 \uD65C\uC131\uD654 \uC2DC\uC791 \uC2DC\uAC04. \uC774 \uC2DC\uAC04 \uC774\uC804 \uB300\uD654\uB294 \uAE30\uB85D \uC548 \uD568 
@@ -520,7 +558,7 @@ function cmdHelp() {
   console.log("  config             \uD604\uC7AC \uC124\uC815 \uBC0F \uC635\uC158 \uD655\uC778");
   console.log("  logs               \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
   console.log("  write-journal      \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131");
-  console.log("  retry              \uC2E4\uD328\uD55C \uB0A0\uC9DC\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131 (\uC0DD\uC131, \uC2E4\uD328, \uC218\uC815\uB41C \uC77C\uC790\uC758 \uC77C\uC9C0\uB97C \uC0DD\uC131)");
+  console.log("  retry              \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
   console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9\n");
 }
 var command = process.argv[2];

@@ -48,6 +48,35 @@ function registerTaskScheduler(endTime: string): void {
   }
 }
 
+function unregisterTaskScheduler(): void {
+  if (process.platform === 'win32') {
+    try {
+      execSync(`schtasks /delete /tn "DailyJournalPlugin" /f`, { stdio: 'ignore' });
+    } catch { /* 없으면 무시 */ }
+  } else {
+    let currentCrontab = '';
+    try {
+      currentCrontab = execSync('crontab -l', { encoding: 'utf-8' });
+    } catch { /* crontab 없으면 무시 */ }
+
+    const filtered = currentCrontab.split('\n')
+      .filter(l => !l.includes('daily-journal-plugin'))
+      .filter(Boolean);
+
+    if (filtered.length > 0) {
+      const tmpFile = path.join(os.tmpdir(), 'daily-journal-crontab.tmp');
+      fs.writeFileSync(tmpFile, filtered.join('\n') + '\n', 'utf-8');
+      execSync(`crontab "${tmpFile}"`);
+      fs.unlinkSync(tmpFile);
+    } else {
+      try {
+        execSync('crontab -r', { stdio: 'ignore' });
+      } catch { /* 없으면 무시 */ }
+    }
+  }
+  console.log('- 스케쥴러 제거 완료');
+}
+
 function registerWindowsScheduler(endTime: string): void {
   const [hour, minute] = endTime.split(':');
   const generateScript = path.join(PLUGIN_DIR, 'dist', 'generate-journal.js');
@@ -98,6 +127,7 @@ function createUserConfigIfAbsent(): void {
 
   const defaultConfig = {
     schedule: {
+      use: true,
       start: '09:00',
       end: '18:00',
     },
@@ -134,7 +164,12 @@ export function setup(): void {
 
   // 4. 스케쥴러 등록
   const config = loadConfig();
-  registerTaskScheduler(config.schedule.end);
+  if (config.schedule.use) {
+    registerTaskScheduler(config.schedule.end);
+  } else {
+    console.log('스케줄러 제거. (daily-journal.schedule.use: false)')
+    unregisterTaskScheduler();
+  }
 
   // 5. 전역 CLI 등록 (dj 명령어)
   try {
@@ -147,7 +182,9 @@ export function setup(): void {
 
   console.log('\n✅ daily-journal 플러그인 설치 완료');
   console.log(`   데이터 위치: ${DATA_DIR}`);
-  console.log(`   일지 생성 시간: 매일 ${config.schedule.end}`);
+  if(config.schedule.use){
+    console.log(`   일지 생성 시간: 매일 ${config.schedule.end}`);
+  }
   console.log('\n   사용자 설정 파일: ~/.claude/daily-journal/user-config.json');
   console.log('\n   ─────────────────────────────────────────────────');
   console.log('   도움말 dj help');

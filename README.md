@@ -54,6 +54,7 @@ dj setup               # 설정값 적용
 ```json
 {
   "schedule": {
+    "use": true,
     "start": "09:00",
     "end": "18:00"
   },
@@ -72,8 +73,9 @@ dj setup               # 설정값 적용
 
 | 옵션 | 기본값 | 설명 |
 |------|--------|------|
+| `schedule.use` | `true` | `false`로 설정하면 스케줄러 등록 안 함. 수동으로 `dj write-journal` 사용. **변경 시 setup 재실행 필요** |
 | `schedule.start` | `"09:00"` | 훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함 |
-| `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. Task Scheduler가 이 시간에 일지 생성. **변경 시 setup 재실행 필요** |
+| `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. 스케줄러가 이 시간에 일지 생성. **변경 시 setup 재실행 필요** |
 | `summary.use` | `true` | `false`로 설정하면 응답 원본을 저장 (stop-hook에서 claude 호출 없음). 단, 대화가 많으면 일지 생성 시 컨텍스트 초과로 청크 분할 처리됨 |
 | `summary.prompt` | 참고 | `summary.use: true`일 때 응답을 요약할 프롬프트 |
 | `journal.prompt` | 참고 | 하루치 기록으로 일지를 생성할 때 쓰는 프롬프트 |
