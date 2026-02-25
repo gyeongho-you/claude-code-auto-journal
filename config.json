@@ -1,0 +1,16 @@
+{
+  "schedule": {
+    "start": "09:00",
+    "end": "18:00"
+  },
+  "summary": {
+    "use": true,
+    "prompt": "다음 Claude 응답을 핵심만 1~2줄로 요약해줘. 변경된 파일, 해결한 문제 위주로."
+  },
+  "journal": {
+    "prompt": "아래 작업 요약 목록을 바탕으로 오늘의 개발 일지를 마크다운으로 작성해줘.",
+    "output_dir": ""
+  },
+  "cleanup": false,
+  "save": true
+}
