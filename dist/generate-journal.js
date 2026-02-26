@@ -131,11 +131,22 @@ function logError(message) {
 
 // src/claude.ts
 var import_child_process = require("child_process");
-function callClaude(input) {
+
+// src/types.ts
+var ClaudeModel = {
+  haiku: "claude-haiku-4-5-20251001",
+  sonnet: "claude-sonnet-4-6",
+  opus: "claude-opus-4-6",
+  default: "claude-haiku-4-5-20251001"
+};
+
+// src/claude.ts
+function callClaude(input, model) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
-  return (0, import_child_process.spawnSync)("claude", ["--print"], {
+  const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
+  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
@@ -198,12 +209,12 @@ function splitIntoChunks(data, maxTokens) {
   if (current) chunks.push(current);
   return chunks;
 }
-function summarizeChunk(chunkData, chunkIndex, totalChunks) {
+function summarizeChunk(chunkData, chunkIndex, totalChunks, model) {
   const input = `\uB2E4\uC74C\uC740 \uB300\uD654 \uAE30\uB85D\uC758 \uC77C\uBD80. (\uD30C\uD2B8 ${chunkIndex + 1}/${totalChunks}).
 \uD575\uC2EC \uC791\uC5C5 \uB0B4\uC6A9, \uD574\uACB0\uD55C \uBB38\uC81C, \uC911\uC694\uD55C \uACB0\uC815 \uC0AC\uD56D\uC744 \uAC04\uACB0\uD558\uAC8C \uC815\uB9AC.
 
 ${chunkData}`;
-  const result = callClaude(input);
+  const result = callClaude(input, model);
   if (result.error || result.status !== 0) {
     throw new Error(result.stderr || String(result.error) || "claude CLI \uC2E4\uD328");
   }
@@ -259,7 +270,7 @@ ${config.journal.stylePrompt}
 \uB0A0\uC9DC: ${date}
 
 ${data}`;
-  const result = callClaude(input);
+  const result = callClaude(input, config.journal.claudeModel);
   if (result.error || result.status !== 0) {
     const error = result.stderr || String(result.error) || "claude CLI \uC2E4\uD328";
     console.log(`  \u2717 claude CLI \uC2E4\uD328: ${error}`);
@@ -282,7 +293,7 @@ function generateChunked(date, data, config) {
   const partialSummaries = [];
   for (let i = 0; i < chunks.length; i++) {
     console.log(`  \uCCAD\uD06C ${i + 1}/${chunks.length} \uCC98\uB9AC \uC911...`);
-    const summary = summarizeChunk(chunks[i], i, chunks.length);
+    const summary = summarizeChunk(chunks[i], i, chunks.length, config.journal.claudeModel);
     partialSummaries.push(summary);
   }
   const combined = partialSummaries.map((s, i) => `### \uD30C\uD2B8 ${i + 1}
@@ -295,7 +306,7 @@ ${config.journal.stylePrompt}
 \uC544\uB798\uB294 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC744 \uC5EC\uB7EC \uD30C\uD2B8\uB85C \uB098\uB204\uC5B4 \uC815\uB9AC\uD55C \uB0B4\uC6A9. \uC774\uB97C \uD558\uB098\uC758 \uC77C\uAD00\uB41C \uC77C\uC9C0\uB85C \uD1B5\uD569.
 
 ${combined}`;
-  const result = callClaude(finalInput);
+  const result = callClaude(finalInput, config.journal.claudeModel);
   if (result.error || result.status !== 0) {
     const error = result.stderr || String(result.error) || "claude CLI \uC2E4\uD328 (\uCD5C\uC885 \uD1B5\uD569)";
     console.log(`  \u2717 \uCD5C\uC885 \uD1B5\uD569 \uC2E4\uD328: ${error}`);

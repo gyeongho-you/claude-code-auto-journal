@@ -126,11 +126,22 @@ var path2 = __toESM(require("path"));
 
 // src/claude.ts
 var import_child_process = require("child_process");
-function callClaude(input) {
+
+// src/types.ts
+var ClaudeModel = {
+  haiku: "claude-haiku-4-5-20251001",
+  sonnet: "claude-sonnet-4-6",
+  opus: "claude-opus-4-6",
+  default: "claude-haiku-4-5-20251001"
+};
+
+// src/claude.ts
+function callClaude(input, model) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
-  return (0, import_child_process.spawnSync)("claude", ["--print"], {
+  const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
+  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
@@ -193,12 +204,12 @@ function splitIntoChunks(data, maxTokens) {
   if (current) chunks.push(current);
   return chunks;
 }
-function summarizeChunk(chunkData, chunkIndex, totalChunks) {
+function summarizeChunk(chunkData, chunkIndex, totalChunks, model) {
   const input = `\uB2E4\uC74C\uC740 \uB300\uD654 \uAE30\uB85D\uC758 \uC77C\uBD80. (\uD30C\uD2B8 ${chunkIndex + 1}/${totalChunks}).
 \uD575\uC2EC \uC791\uC5C5 \uB0B4\uC6A9, \uD574\uACB0\uD55C \uBB38\uC81C, \uC911\uC694\uD55C \uACB0\uC815 \uC0AC\uD56D\uC744 \uAC04\uACB0\uD558\uAC8C \uC815\uB9AC.
 
 ${chunkData}`;
-  const result = callClaude(input);
+  const result = callClaude(input, model);
   if (result.error || result.status !== 0) {
     throw new Error(result.stderr || String(result.error) || "claude CLI \uC2E4\uD328");
   }
@@ -254,7 +265,7 @@ ${config.journal.stylePrompt}
 \uB0A0\uC9DC: ${date}
 
 ${data}`;
-  const result = callClaude(input);
+  const result = callClaude(input, config.journal.claudeModel);
   if (result.error || result.status !== 0) {
     const error = result.stderr || String(result.error) || "claude CLI \uC2E4\uD328";
     console.log(`  \u2717 claude CLI \uC2E4\uD328: ${error}`);
@@ -277,7 +288,7 @@ function generateChunked(date, data, config) {
   const partialSummaries = [];
   for (let i = 0; i < chunks.length; i++) {
     console.log(`  \uCCAD\uD06C ${i + 1}/${chunks.length} \uCC98\uB9AC \uC911...`);
-    const summary = summarizeChunk(chunks[i], i, chunks.length);
+    const summary = summarizeChunk(chunks[i], i, chunks.length, config.journal.claudeModel);
     partialSummaries.push(summary);
   }
   const combined = partialSummaries.map((s, i) => `### \uD30C\uD2B8 ${i + 1}
@@ -290,7 +301,7 @@ ${config.journal.stylePrompt}
 \uC544\uB798\uB294 \uC624\uB298 \uD558\uB8E8 \uB300\uD654 \uAE30\uB85D\uC744 \uC5EC\uB7EC \uD30C\uD2B8\uB85C \uB098\uB204\uC5B4 \uC815\uB9AC\uD55C \uB0B4\uC6A9. \uC774\uB97C \uD558\uB098\uC758 \uC77C\uAD00\uB41C \uC77C\uC9C0\uB85C \uD1B5\uD569.
 
 ${combined}`;
-  const result = callClaude(finalInput);
+  const result = callClaude(finalInput, config.journal.claudeModel);
   if (result.error || result.status !== 0) {
     const error = result.stderr || String(result.error) || "claude CLI \uC2E4\uD328 (\uCD5C\uC885 \uD1B5\uD569)";
     console.log(`  \u2717 \uCD5C\uC885 \uD1B5\uD569 \uC2E4\uD328: ${error}`);
@@ -427,10 +438,12 @@ function createUserConfigIfAbsent() {
     },
     summary: {
       use: true,
+      claudeModel: "haiku",
       stylePrompt: "\uD575\uC2EC\uB9CC 3\uC904 \uC774\uB0B4\uB85C \uC694\uC57D. \uBCC0\uACBD\uB41C \uD30C\uC77C, \uC0AC\uC6A9\uB41C \uAE30\uC220, \uD574\uACB0\uB41C \uBB38\uC81C\uB97C \uC911\uC2EC\uC73C\uB85C"
     },
     journal: {
       stylePrompt: "\uAC01 \uD504\uB85C\uC81D\uD2B8\uBCC4\uB85C \uD615\uC2DD\uC740 \uB9C8\uD06C\uB2E4\uC6B4 \uD615\uC2DD\uC73C\uB85C \uC791\uC131",
+      claudeModel: "haiku",
       output_dir: ""
     },
     cleanup: false,
@@ -548,11 +561,17 @@ function cmdConfig() {
   console.log(`                           - true \uC2DC Claude\uAC00 \uC751\uB2F5\uC744 \uC694\uC57D\uD574 \uC800\uC7A5. \`stylePrompt\`\uB85C SKIP\uC744 \uBC18\uD658\uD558\uB3C4\uB85D \uC124\uC815\uD558\uBA74 \uD574\uB2F9 \uB300\uD654\uB294 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC74C.`);
   console.log(`                           - false \uC2DC \uC751\uB2F5 \uC6D0\uBCF8\uC744 \uADF8\uB300\uB85C \uC800\uC7A5 (Claude \uD638\uCD9C \uC5C6\uC74C, \uD1A0\uD070 \uC808\uC57D) 
 `);
+  console.log(`  summary.claudeModel  : "${config.summary.claudeModel}"`);
+  console.log(`                           - \uC694\uC57D\uC2DC \uC0AC\uC6A9\uB418\uB294 claudeModel 
+`);
   console.log(`  summary.stylePrompt  : "${config.summary.stylePrompt.length > 60 ? config.summary.stylePrompt.slice(0, 60) + "..." : config.summary.stylePrompt}"`);
   console.log(`                           - \uB300\uD654 \uC885\uB8CC\uB9C8\uB2E4 \uC751\uB2F5\uC744 \uC694\uC57D\uD560 \uB54C \uC4F0\uB294 \uD504\uB86C\uD504\uD2B8 
 `);
   console.log(`  journal.output_dir   : "${config.journal.output_dir}"`);
   console.log(`                           - \uC77C\uC9C0 \uC800\uC7A5 \uACBD\uB85C. YYYY-MM-DD/journal.md \uD615\uD0DC\uB85C \uC800\uC7A5\uB428 
+`);
+  console.log(`  journal.claudeModel  : "${config.journal.claudeModel}"`);
+  console.log(`                           - \uC77C\uC9C0 \uC791\uC131\uC2DC \uC0AC\uC6A9\uB418\uB294 claudeModel 
 `);
   console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60) + "..." : config.journal.stylePrompt}"`);
   console.log(`                           - \uC77C\uC9C0 \uC791\uC131 \uC2A4\uD0C0\uC77C \uB4F1\uC744 \uC815\uD558\uB294 \uD504\uB86C\uD504\uD2B8 

@@ -61,9 +61,11 @@ dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
   },
   "summary": {
     "use": true,
+    "claudeModel": "haiku",
     "stylePrompt": "핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로"
   },
   "journal": {
+    "claudeModel": "haiku",
     "stylePrompt": "각 프로젝트별로 마크다운 형식으로 작성",
     "output_dir": ""
   },
@@ -81,7 +83,9 @@ dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
 | `schedule.start` | `"09:00"` | 훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함                                                                                                           |
 | `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. 스케줄러가 이 시간에 일지 생성. **변경 시 setup 재실행 필요**                                                                                     |
 | `summary.use` | `true` | `true` 시 Claude가 응답을 요약해 저장. `stylePrompt`로 SKIP을 반환하도록 설정하면 해당 대화는 저장하지 않음. `false` 시 응답 원본을 그대로 저장 (Claude 호출 없음, 토큰 절약) |
+| `summary.claudeModel` | `"haiku"` | 요약에 사용할 모델. `"haiku"` / `"sonnet"` / `"opus"` 중 선택. 알 수 없는 값이면 `"haiku"`로 폴백 |
 | `summary.stylePrompt` | 참고 | `summary.use: true`일 때 요약 스타일 지정 (형식, 길이 등)                                                                                               |
+| `journal.claudeModel` | `"haiku"` | 일지 생성에 사용할 모델. `"haiku"` / `"sonnet"` / `"opus"` 중 선택. 알 수 없는 값이면 `"haiku"`로 폴백 |
 | `journal.stylePrompt` | 참고 | 일지 생성 시 출력 스타일 지정 (형식, 구조 등)                                                                                                              |
 | `journal.output_dir` | `""` | 일지 저장 경로. 비워두면 `~/.claude/daily-journal/data` 사용                                                                                          |
 | `cleanup` | `false` | 일지 생성 후 히스토리 파일 삭제 여부. `true`로 설정하면 `.jsonl` 파일 삭제 (당일 생성된 history는 삭제 안 됨)                                                               |

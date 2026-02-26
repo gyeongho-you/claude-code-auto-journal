@@ -217,10 +217,12 @@ function createUserConfigIfAbsent() {
     },
     summary: {
       use: true,
+      claudeModel: "haiku",
       stylePrompt: "\uD575\uC2EC\uB9CC 3\uC904 \uC774\uB0B4\uB85C \uC694\uC57D. \uBCC0\uACBD\uB41C \uD30C\uC77C, \uC0AC\uC6A9\uB41C \uAE30\uC220, \uD574\uACB0\uB41C \uBB38\uC81C\uB97C \uC911\uC2EC\uC73C\uB85C"
     },
     journal: {
       stylePrompt: "\uAC01 \uD504\uB85C\uC81D\uD2B8\uBCC4\uB85C \uD615\uC2DD\uC740 \uB9C8\uD06C\uB2E4\uC6B4 \uD615\uC2DD\uC73C\uB85C \uC791\uC131",
+      claudeModel: "haiku",
       output_dir: ""
     },
     cleanup: false,

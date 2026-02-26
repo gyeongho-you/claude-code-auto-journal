@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {getDateString, getNowMinutes, getTodayDir, loadConfig, logError, recordRunHistory} from './config';
-import {HistoryEntry, StdinPayload, TranscriptLine} from './types';
+import {ClaudeModel, HistoryEntry, StdinPayload, TranscriptLine} from './types';
 import {callClaude} from "./claude";
 
 function isInTimeRange(start: string, end: string, timeZone: string): boolean {
@@ -51,9 +51,9 @@ function getLastUserMessage(transcriptPath: string): string | null {
   return null;
 }
 
-function summarize(defaultPrompt: string, stylePrompt: string, response: string): string {
+function summarize(defaultPrompt: string, stylePrompt: string, response: string, model: ClaudeModel): string {
   const input = `${defaultPrompt}\n${stylePrompt}\n\n---\n${response}`;
-  const result = callClaude(input);
+  const result = callClaude(input, model);
 
   if (result.error || result.status !== 0) {
     throw new Error(result.stderr || result.stdout || 'claude CLI 실패');
@@ -96,7 +96,7 @@ function main(): void {
   }
 
   // 요약 사용 여부에 따라 대화내용 원본을 저장할지 요약본을 생성할지 결졍
-  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message) : last_assistant_message;
+  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel) : last_assistant_message;
 
   if(summary.length === 0 || summary.trim().toUpperCase() === 'SKIP') return;
 

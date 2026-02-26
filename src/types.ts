@@ -8,11 +8,13 @@ export interface Config {
     use: boolean;
     defaultPrompt: string;
     stylePrompt: string;
+    claudeModel: ClaudeModel;
   };
   journal: {
     defaultPrompt: string;
     stylePrompt: string;
     output_dir: string;
+    claudeModel: ClaudeModel;
   };
   cleanup: boolean;
   save: boolean;
@@ -51,3 +53,13 @@ export interface TranscriptLine {
   };
   timestamp?: string;
 }
+
+//default값은 haiku
+export const ClaudeModel = {
+  haiku : "claude-haiku-4-5-20251001",
+  sonnet : "claude-sonnet-4-6",
+  opus : "claude-opus-4-6",
+  default : "claude-haiku-4-5-20251001"
+}
+
+export type ClaudeModel = keyof typeof ClaudeModel

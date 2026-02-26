@@ -45,10 +45,14 @@ function cmdConfig(): void {
   console.log(`  summary.use          : ${config.summary.use}`);
   console.log(`                           - true 시 Claude가 응답을 요약해 저장. \`stylePrompt\`로 SKIP을 반환하도록 설정하면 해당 대화는 저장하지 않음.`);
   console.log(`                           - false 시 응답 원본을 그대로 저장 (Claude 호출 없음, 토큰 절약) \n`);
+  console.log(`  summary.claudeModel  : "${config.summary.claudeModel}"`);
+  console.log(`                           - 요약시 사용되는 claudeModel \n`);
   console.log(`  summary.stylePrompt  : "${config.summary.stylePrompt.length > 60 ? config.summary.stylePrompt.slice(0, 60)+ "..." : config.summary.stylePrompt}"`);
   console.log(`                           - 대화 종료마다 응답을 요약할 때 쓰는 프롬프트 \n`);
   console.log(`  journal.output_dir   : "${config.journal.output_dir}"`);
   console.log(`                           - 일지 저장 경로. YYYY-MM-DD/journal.md 형태로 저장됨 \n`);
+  console.log(`  journal.claudeModel  : "${config.journal.claudeModel}"`);
+  console.log(`                           - 일지 작성시 사용되는 claudeModel \n`);
   console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60)+ "..." : config.journal.stylePrompt}"`);
   console.log(`                           - 일지 작성 스타일 등을 정하는 프롬프트 \n`);
   console.log(`  cleanup              : ${config.cleanup}`);

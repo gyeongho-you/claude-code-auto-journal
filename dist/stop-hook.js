@@ -135,11 +135,22 @@ function logError(message) {
 
 // src/claude.ts
 var import_child_process = require("child_process");
-function callClaude(input) {
+
+// src/types.ts
+var ClaudeModel = {
+  haiku: "claude-haiku-4-5-20251001",
+  sonnet: "claude-sonnet-4-6",
+  opus: "claude-opus-4-6",
+  default: "claude-haiku-4-5-20251001"
+};
+
+// src/claude.ts
+function callClaude(input, model) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
-  return (0, import_child_process.spawnSync)("claude", ["--print"], {
+  const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
+  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
@@ -189,13 +200,13 @@ function getLastUserMessage(transcriptPath) {
   }
   return null;
 }
-function summarize(defaultPrompt, stylePrompt, response) {
+function summarize(defaultPrompt, stylePrompt, response, model) {
   const input = `${defaultPrompt}
 ${stylePrompt}
 
 ---
 ${response}`;
-  const result = callClaude(input);
+  const result = callClaude(input, model);
   if (result.error || result.status !== 0) {
     throw new Error(result.stderr || result.stdout || "claude CLI \uC2E4\uD328");
   }
@@ -226,7 +237,7 @@ function main() {
     logError(`user \uBA54\uC2DC\uC9C0 \uCD94\uCD9C \uC2E4\uD328 (session: ${session_id}), skip`);
     return;
   }
-  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message) : last_assistant_message;
+  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel) : last_assistant_message;
   if (summary.length === 0 || summary.trim().toUpperCase() === "SKIP") return;
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);

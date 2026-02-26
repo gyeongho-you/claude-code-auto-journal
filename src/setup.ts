@@ -135,10 +135,12 @@ function createUserConfigIfAbsent(): void {
     },
     summary: {
       use: true,
+      claudeModel: "haiku",
       stylePrompt: '핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로',
     },
     journal: {
       stylePrompt: '각 프로젝트별로 형식은 마크다운 형식으로 작성',
+      claudeModel: "haiku",
       output_dir: '',
     },
     cleanup: false,

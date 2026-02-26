@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadConfig, logError, recordRunHistory, getDateString } from './config';
-import {Config, HistoryEntry} from './types';
+import {ClaudeModel, Config, HistoryEntry} from './types';
 import {callClaude} from "./claude";
 
 // 한글 포함 기준 약 2.5자 = 1토큰
@@ -70,9 +70,9 @@ function splitIntoChunks(data: string, maxTokens: number): string[] {
   return chunks;
 }
 
-function summarizeChunk(chunkData: string, chunkIndex: number, totalChunks: number): string {
+function summarizeChunk(chunkData: string, chunkIndex: number, totalChunks: number, model: ClaudeModel): string {
   const input = `다음은 대화 기록의 일부. (파트 ${chunkIndex + 1}/${totalChunks}).\n핵심 작업 내용, 해결한 문제, 중요한 결정 사항을 간결하게 정리.\n\n${chunkData}`;
-  const result = callClaude(input);
+  const result = callClaude(input, model);
   if (result.error || result.status !== 0) {
     throw new Error(result.stderr || String(result.error) || 'claude CLI 실패');
   }
@@ -139,7 +139,7 @@ function generateJournalForDate(date: string, config: Config): void {
 
 function generateSingle(date: string, data: string, config: Config): string | null {
   const input = `${config.journal.defaultPrompt}\n${config.journal.stylePrompt}\n\n날짜: ${date}\n\n${data}`;
-  const result = callClaude(input);
+  const result = callClaude(input, config.journal.claudeModel);
 
   if (result.error || result.status !== 0) {
     const error = result.stderr || String(result.error) || 'claude CLI 실패';
@@ -167,7 +167,7 @@ function generateChunked(date: string, data: string, config: Config): string | n
   const partialSummaries: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
     console.log(`  청크 ${i + 1}/${chunks.length} 처리 중...`);
-    const summary = summarizeChunk(chunks[i], i, chunks.length);
+    const summary = summarizeChunk(chunks[i], i, chunks.length, config.journal.claudeModel);
     partialSummaries.push(summary);
   }
 
@@ -176,7 +176,7 @@ function generateChunked(date: string, data: string, config: Config): string | n
     .join('\n\n');
 
   const finalInput = `${config.journal.defaultPrompt}\n${config.journal.stylePrompt}\n\n날짜: ${date}\n\n아래는 오늘 하루 대화 기록을 여러 파트로 나누어 정리한 내용. 이를 하나의 일관된 일지로 통합.\n\n${combined}`;
-  const result = callClaude(finalInput);
+  const result = callClaude(finalInput, config.journal.claudeModel);
 
   if (result.error || result.status !== 0) {
     const error = result.stderr || String(result.error) || 'claude CLI 실패 (최종 통합)';
