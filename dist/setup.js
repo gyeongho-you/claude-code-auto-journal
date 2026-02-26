@@ -30,7 +30,8 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/setup.ts
 var setup_exports = {};
 __export(setup_exports, {
-  setup: () => setup
+  setup: () => setup,
+  uninstall: () => uninstall
 });
 module.exports = __toCommonJS(setup_exports);
 var fs2 = __toESM(require("fs"));
@@ -261,11 +262,42 @@ function setup() {
   console.log("   \uB3C4\uC6C0\uB9D0 dj help");
   console.log("   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
 }
+function removeStopHook() {
+  let settings = {};
+  if (fs2.existsSync(SETTINGS_PATH)) {
+    try {
+      settings = JSON.parse(fs2.readFileSync(SETTINGS_PATH, "utf-8"));
+    } catch {
+      settings = {};
+    }
+  }
+  const hooks = settings.hooks ?? {};
+  const stopHooks = hooks.Stop ?? [];
+  settings.hooks = { ...hooks, Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))) };
+  fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
+  console.log("\u2713 Stop \uD6C5 \uC81C\uAC70 \uC644\uB8CC");
+}
+function uninstall() {
+  removeStopHook();
+  console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
+  unregisterTaskScheduler();
+  try {
+    (0, import_child_process.execSync)("npm unlink", { cwd: PLUGIN_DIR, stdio: "ignore" });
+    console.log("\u2713 CLI \uC804\uC5ED \uC0AD\uC81C \uC644\uB8CC");
+  } catch {
+    console.warn("\u26A0 CLI \uC804\uC5ED \uC0AD\uC81C \uC2E4\uD328. \uC218\uB3D9\uC73C\uB85C \uC0AD\uC81C\uD558\uB824\uBA74:");
+    console.warn(`  cd "${PLUGIN_DIR}" && npm unlink`);
+  }
+  console.log("\n\u2705 daily-journal \uC81C\uAC70\uC644\uB8CC");
+  console.log(`     - \uD50C\uB7EC\uADF8\uC778 \uD3F4\uB354\uB97C \uC644\uC804\uD788 \uC0AD\uC81C\uD558\uB824\uBA74: ${PLUGIN_DIR} \uD3F4\uB354\uB97C \uC0AD\uC81C\uD574\uC8FC\uC138\uC694.`);
+  console.log(`     - \uC7AC\uC124\uCE58 \uBA85\uB839\uC5B4 : node "${PLUGIN_DIR}/dist/setup.js"`);
+}
 var isDirectRun = process.argv[1]?.endsWith("setup.js") || process.argv[1]?.endsWith("setup.ts");
 if (isDirectRun) {
   main();
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  setup
+  setup,
+  uninstall
 });

@@ -4,7 +4,7 @@ import * as path from 'path';
 import {DATA_DIR, loadConfig, logError, getDateString} from './config';
 import {RunHistoryEntry} from './types';
 import {writeJournal} from "./generate-journal";
-import {setup} from "./setup";
+import {setup, uninstall} from "./setup";
 
 const RUN_HISTORY_PATH = path.join(DATA_DIR, 'run-history.json');
 
@@ -126,6 +126,7 @@ function cmdHelp(): void {
   console.log('  write-journal      오늘 일지 수동 생성');
   console.log('  retry              일지 생성에 실패한 날짜 들의 일지 재생성');
   console.log('  setup              설정값 적용\n');
+  console.log('  uninstall          설치 삭제\n');
 }
 
 // ─── router ────────────────────────────────────────────────────────────────
@@ -150,6 +151,9 @@ switch (command) {
     break;
   case 'setup':
     try { setup(); } catch (e) { logError(String(e)); process.exit(1); }
+    break;
+  case 'uninstall':
+    try { uninstall(); } catch (e) { logError(String(e)); process.exit(1); }
     break;
   default:
     cmdHelp();

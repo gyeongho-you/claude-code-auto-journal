@@ -44,6 +44,7 @@ dj logs                # 일지 생성 성공/실패 기록 확인
 dj write-journal       # 오늘 일지 수동 생성
 dj retry               # 실패/수정된 날짜의 일지 재생성
 dj setup               # 설정값 적용
+dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
 ```
 
 ## 설정 커스터마이징
@@ -100,11 +101,19 @@ dj setup               # 설정값 적용
 └── error.log                # 오류 로그
 ```
 
-## 재설치 시
+## 제거
+
+```bash
+dj uninstall
+```
+
+Stop 훅, 스케줄러, `dj` CLI를 제거합니다. 일지 데이터(`~/.claude/daily-journal/`)는 삭제되지 않습니다.
+플러그인 폴더까지 완전히 삭제하려면 `~/.claude/plugins/daily-journal`을 직접 삭제하세요.
+
+## 재설치
 
 ```bash
 node ~/.claude/plugins/daily-journal/dist/setup.js
 ```
 
-
-setup 시 Stop 훅과 Task Scheduler가 재등록됩니다. `user-config.json`은 이미 존재하면 덮어쓰지 않습니다.
+Stop 훅과 Task Scheduler가 재등록됩니다. `user-config.json`은 이미 존재하면 덮어쓰지 않습니다.

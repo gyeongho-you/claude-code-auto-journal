@@ -472,6 +472,36 @@ function setup() {
   console.log("   \uB3C4\uC6C0\uB9D0 dj help");
   console.log("   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
 }
+function removeStopHook() {
+  let settings = {};
+  if (fs3.existsSync(SETTINGS_PATH)) {
+    try {
+      settings = JSON.parse(fs3.readFileSync(SETTINGS_PATH, "utf-8"));
+    } catch {
+      settings = {};
+    }
+  }
+  const hooks = settings.hooks ?? {};
+  const stopHooks = hooks.Stop ?? [];
+  settings.hooks = { ...hooks, Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))) };
+  fs3.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
+  console.log("\u2713 Stop \uD6C5 \uC81C\uAC70 \uC644\uB8CC");
+}
+function uninstall() {
+  removeStopHook();
+  console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
+  unregisterTaskScheduler();
+  try {
+    (0, import_child_process2.execSync)("npm unlink", { cwd: PLUGIN_DIR, stdio: "ignore" });
+    console.log("\u2713 CLI \uC804\uC5ED \uC0AD\uC81C \uC644\uB8CC");
+  } catch {
+    console.warn("\u26A0 CLI \uC804\uC5ED \uC0AD\uC81C \uC2E4\uD328. \uC218\uB3D9\uC73C\uB85C \uC0AD\uC81C\uD558\uB824\uBA74:");
+    console.warn(`  cd "${PLUGIN_DIR}" && npm unlink`);
+  }
+  console.log("\n\u2705 daily-journal \uC81C\uAC70\uC644\uB8CC");
+  console.log(`     - \uD50C\uB7EC\uADF8\uC778 \uD3F4\uB354\uB97C \uC644\uC804\uD788 \uC0AD\uC81C\uD558\uB824\uBA74: ${PLUGIN_DIR} \uD3F4\uB354\uB97C \uC0AD\uC81C\uD574\uC8FC\uC138\uC694.`);
+  console.log(`     - \uC7AC\uC124\uCE58 \uBA85\uB839\uC5B4 : node "${PLUGIN_DIR}/dist/setup.js"`);
+}
 var isDirectRun2 = process.argv[1]?.endsWith("setup.js") || process.argv[1]?.endsWith("setup.ts");
 if (isDirectRun2) {
   main2();
@@ -601,6 +631,7 @@ function cmdHelp() {
   console.log("  write-journal      \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131");
   console.log("  retry              \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
   console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9\n");
+  console.log("  uninstall          \uC124\uCE58 \uC0AD\uC81C\n");
 }
 var command = process.argv[2];
 switch (command) {
@@ -632,6 +663,14 @@ switch (command) {
   case "setup":
     try {
       setup();
+    } catch (e) {
+      logError(String(e));
+      process.exit(1);
+    }
+    break;
+  case "uninstall":
+    try {
+      uninstall();
     } catch (e) {
       logError(String(e));
       process.exit(1);

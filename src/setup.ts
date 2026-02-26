@@ -194,6 +194,46 @@ export function setup(): void {
   console.log('   ─────────────────────────────────────────────────');
 }
 
+function removeStopHook(): void {
+  let settings: Record<string, unknown> = {};
+  if (fs.existsSync(SETTINGS_PATH)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+    } catch {
+      settings = {};
+    }
+  }
+
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  const stopHooks = (hooks.Stop ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
+  settings.hooks = { ...hooks, Stop: stopHooks.filter(h => !h.hooks?.some(hh => hh.command?.includes('daily-journal'))) };
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
+  console.log('✓ Stop 훅 제거 완료');
+}
+
+export function uninstall(): void {
+  // 1. Stop 훅 삭제
+  removeStopHook();
+
+  // 2. 스케쥴러 삭제
+  console.log('스케줄러 제거.')
+  unregisterTaskScheduler();
+
+
+  // 3. 전역 CLI 삭제 (dj 명령어)
+  try {
+    execSync('npm unlink', { cwd: PLUGIN_DIR, stdio: 'ignore' });
+    console.log('✓ CLI 전역 삭제 완료');
+  } catch {
+    console.warn('⚠ CLI 전역 삭제 실패. 수동으로 삭제하려면:');
+    console.warn(`  cd "${PLUGIN_DIR}" && npm unlink`);
+  }
+
+  console.log('\n✅ daily-journal 제거완료');
+  console.log(`     - 플러그인 폴더를 완전히 삭제하려면: ${PLUGIN_DIR} 폴더를 삭제해주세요.`);
+  console.log(`     - 재설치 명령어 : node "${PLUGIN_DIR}/dist/setup.js"`);
+}
+
 const isDirectRun = process.argv[1]?.endsWith('setup.js') ||
     process.argv[1]?.endsWith('setup.ts');
 if (isDirectRun) {
