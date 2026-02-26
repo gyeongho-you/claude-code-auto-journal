@@ -630,7 +630,7 @@ function cmdHelp() {
   console.log("  logs               \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
   console.log("  write-journal      \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131");
   console.log("  retry              \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
-  console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9\n");
+  console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9");
   console.log("  uninstall          \uC124\uCE58 \uC0AD\uC81C\n");
 }
 var command = process.argv[2];
