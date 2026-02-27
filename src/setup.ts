@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {DATA_DIR, loadConfig} from './config';
+import {DATA_DIR, loadConfig, loadDefaultConfig} from './config';
 import {execSync} from "child_process";
 
 const HOME = os.homedir();
@@ -140,28 +140,30 @@ function createUserConfigIfAbsent(): void {
   const userConfigPath = path.join(DATA_DIR, 'user-config.json');
   if (fs.existsSync(userConfigPath)) return;
 
-  const defaultConfig = {
+  const defaultConfig = loadDefaultConfig()
+
+  const userConfig = {
     schedule: {
-      use: true,
-      start: '09:00',
-      end: '18:00',
+      use: defaultConfig.schedule.use,
+      start: defaultConfig.schedule.start,
+      end: defaultConfig.schedule.end,
     },
     summary: {
-      use: true,
-      claudeModel: "haiku",
-      stylePrompt: '핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로',
+      use: defaultConfig.summary.use,
+      claudeModel: defaultConfig.summary.claudeModel,
+      stylePrompt: defaultConfig.summary.stylePrompt,
     },
     journal: {
-      stylePrompt: '각 프로젝트별로 형식은 마크다운 형식으로 작성',
-      claudeModel: "haiku",
-      output_dir: '',
+      stylePrompt: defaultConfig.journal.stylePrompt,
+      claudeModel: defaultConfig.journal.claudeModel,
+      output_dir: defaultConfig.journal.output_dir,
     },
-    cleanup: false,
-    save: true,
-    timeZone: 'Asia/Seoul',
+    cleanup: defaultConfig.cleanup,
+    save: defaultConfig.save,
+    timeZone: defaultConfig.timeZone,
   };
 
-  fs.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
+  fs.writeFileSync(userConfigPath, JSON.stringify(userConfig, null, 2), 'utf-8');
   console.log(`✓ 사용자 설정 파일 생성: ${userConfigPath}`);
 }
 

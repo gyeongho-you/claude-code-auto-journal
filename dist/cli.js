@@ -437,27 +437,28 @@ function registerCronJob(endTime) {
 function createUserConfigIfAbsent() {
   const userConfigPath = path3.join(DATA_DIR, "user-config.json");
   if (fs3.existsSync(userConfigPath)) return;
-  const defaultConfig = {
+  const defaultConfig = loadDefaultConfig();
+  const userConfig = {
     schedule: {
-      use: true,
-      start: "09:00",
-      end: "18:00"
+      use: defaultConfig.schedule.use,
+      start: defaultConfig.schedule.start,
+      end: defaultConfig.schedule.end
     },
     summary: {
-      use: true,
-      claudeModel: "haiku",
-      stylePrompt: "\uD575\uC2EC\uB9CC 3\uC904 \uC774\uB0B4\uB85C \uC694\uC57D. \uBCC0\uACBD\uB41C \uD30C\uC77C, \uC0AC\uC6A9\uB41C \uAE30\uC220, \uD574\uACB0\uB41C \uBB38\uC81C\uB97C \uC911\uC2EC\uC73C\uB85C"
+      use: defaultConfig.summary.use,
+      claudeModel: defaultConfig.summary.claudeModel,
+      stylePrompt: defaultConfig.summary.stylePrompt
     },
     journal: {
-      stylePrompt: "\uAC01 \uD504\uB85C\uC81D\uD2B8\uBCC4\uB85C \uD615\uC2DD\uC740 \uB9C8\uD06C\uB2E4\uC6B4 \uD615\uC2DD\uC73C\uB85C \uC791\uC131",
-      claudeModel: "haiku",
-      output_dir: ""
+      stylePrompt: defaultConfig.journal.stylePrompt,
+      claudeModel: defaultConfig.journal.claudeModel,
+      output_dir: defaultConfig.journal.output_dir
     },
-    cleanup: false,
-    save: true,
-    timeZone: "Asia/Seoul"
+    cleanup: defaultConfig.cleanup,
+    save: defaultConfig.save,
+    timeZone: defaultConfig.timeZone
   };
-  fs3.writeFileSync(userConfigPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
+  fs3.writeFileSync(userConfigPath, JSON.stringify(userConfig, null, 2), "utf-8");
   console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
 }
 function main2() {

@@ -8,10 +8,10 @@
     "use": true,
     "defaultPrompt": "다음 Claude 응답을 요약. 형식은 다음과 같이 작성.",
     "claudeModel": "haiku",
-    "stylePrompt": "핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로"
+    "stylePrompt": "100자 내로 요약. 실제 변경/해결된 내용만. 마크다운 없이 plain text로. 불확실하면 생략."
   },
   "journal": {
-    "defaultPrompt": "아래 작업 요약 목록을 바탕으로 개발 일지 작성. 형식은 다음과 같이 작성.",
+    "defaultPrompt": "아래 작업 요약 목록을 바탕으로 개발 일지 작성. 일지 내용만 출력. 인사말, 안내 문구, 확인 질문 없이 바로 작성. 형식은 다음과 같이 작성.",
     "claudeModel": "haiku",
     "stylePrompt": "각 프로젝트별로 형식은 마크다운",
     "output_dir": ""

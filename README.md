@@ -64,7 +64,7 @@ dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
   "summary": {
     "use": true,
     "claudeModel": "haiku",
-    "stylePrompt": "핵심만 3줄 이내로 요약. 변경된 파일, 사용된 기술, 해결된 문제를 중심으로"
+    "stylePrompt": "100자 내로 요약. 실제 변경/해결된 내용만. 마크다운 없이 plain text로. 불확실하면 생략."
   },
   "journal": {
     "claudeModel": "haiku",

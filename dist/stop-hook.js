@@ -88,7 +88,7 @@ function getDateString(timeZone) {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
 }
 function getNowMinutes(timeZone) {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     hour: "2-digit",
     minute: "2-digit",
@@ -243,9 +243,19 @@ function main() {
   const todayDir = getTodayDir(config);
   const historyDir = path2.join(todayDir, "history");
   fs2.mkdirSync(historyDir, { recursive: true });
+  const now = /* @__PURE__ */ new Date();
+  const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: config.timeZone }).format(now);
+  const timeParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(now);
+  const h = timeParts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = timeParts.find((p) => p.type === "minute")?.value ?? "00";
+  const time = `${dateStr} ${h}:${m}`;
   const entry = {
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    session_id,
+    time,
     prompt,
     summary
   };

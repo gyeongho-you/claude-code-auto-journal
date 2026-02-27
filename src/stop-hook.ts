@@ -105,9 +105,20 @@ function main(): void {
   const historyDir = path.join(todayDir, 'history');
   fs.mkdirSync(historyDir, { recursive: true });
 
+  const now = new Date();
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: config.timeZone }).format(now);
+  const timeParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: config.timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const h = timeParts.find(p => p.type === 'hour')?.value ?? '00';
+  const m = timeParts.find(p => p.type === 'minute')?.value ?? '00';
+  const time = `${dateStr} ${h}:${m}`;
+
   const entry: HistoryEntry = {
-    timestamp: new Date().toISOString(),
-    session_id,
+    time,
     prompt,
     summary,
   };

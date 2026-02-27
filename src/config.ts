@@ -6,7 +6,7 @@ import { Config, RunHistoryEntry } from './types';
 export const DATA_DIR = path.join(os.homedir(), '.claude', 'daily-journal');
 const DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, 'data');
 
-function loadDefaultConfig(): Config {
+export function loadDefaultConfig(): Config {
   const configPath = path.join(__dirname, '..', 'config.json');
   const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   return {
@@ -68,7 +68,7 @@ export function getDateString(timeZone: string): string {
 }
 
 export function getNowMinutes(timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timeZone,
     hour: '2-digit',
     minute: '2-digit',

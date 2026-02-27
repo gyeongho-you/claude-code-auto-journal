@@ -32,8 +32,7 @@ export interface StdinPayload {
 }
 
 export interface HistoryEntry {
-  timestamp: string;
-  session_id: string;
+  time: string;
   prompt: string;
   summary: string;
 }
