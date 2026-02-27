@@ -111,7 +111,7 @@ var HOME = os2.homedir();
 var CLAUDE_DIR = path2.join(HOME, ".claude");
 var PLUGIN_DIR = path2.join(CLAUDE_DIR, "plugins", "daily-journal");
 var SETTINGS_PATH = path2.join(CLAUDE_DIR, "settings.json");
-function registerStopHook() {
+function initClaudeSetting() {
   const hookCommand = `node "${path2.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
   let settings = {};
   if (fs2.existsSync(SETTINGS_PATH)) {
@@ -132,8 +132,15 @@ function registerStopHook() {
     });
   }
   settings.hooks = { ...hooks, Stop: stopHooks };
+  const permissions = settings.permissions ?? {};
+  const allowList = permissions.allow ?? [];
+  const dailyJournalPermission = `Write(${path2.join(DATA_DIR, "**")})`;
+  if (!allowList.includes(dailyJournalPermission)) {
+    allowList.push(dailyJournalPermission);
+  }
+  settings.permissions = { ...permissions, allow: allowList };
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5 \uB4F1\uB85D \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
 }
 function registerTaskScheduler(endTime) {
   if (process.platform === "win32") {
@@ -239,7 +246,7 @@ function setup() {
   fs2.mkdirSync(DATA_DIR, { recursive: true });
   console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR}`);
   createUserConfigIfAbsent();
-  registerStopHook();
+  initClaudeSetting();
   const config = loadConfig();
   if (config.schedule.use) {
     registerTaskScheduler(config.schedule.end);
@@ -264,7 +271,7 @@ function setup() {
   console.log("   \uB3C4\uC6C0\uB9D0 dj help");
   console.log("   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
 }
-function removeStopHook() {
+function removeClaudeSetting() {
   let settings = {};
   if (fs2.existsSync(SETTINGS_PATH)) {
     try {
@@ -276,11 +283,15 @@ function removeStopHook() {
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
   settings.hooks = { ...hooks, Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))) };
+  const permissions = settings.permissions ?? {};
+  const allowList = permissions.allow ?? [];
+  const dailyJournalPermission = `Write(${path2.join(DATA_DIR, "**")})`;
+  settings.permissions = { ...permissions, allow: allowList.filter((p) => p !== dailyJournalPermission) };
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5 \uC81C\uAC70 \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
 function uninstall() {
-  removeStopHook();
+  removeClaudeSetting();
   console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
   unregisterTaskScheduler();
   try {

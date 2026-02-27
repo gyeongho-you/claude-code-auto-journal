@@ -27,6 +27,7 @@ node ~/.claude/plugins/daily-journal/dist/setup.js
 - 데이터 디렉토리(`~/.claude/daily-journal/`) 생성
 - `user-config.json` 기본값으로 생성 (이미 존재하면 건너뜀)
 - Claude Code Stop 훅 등록
+- 데이터 디렉토리 쓰기 권한 등록 (`~/.claude/settings.json`의 `permissions.allow`에 `Write(~/.claude/daily-journal/**)` 추가)
 - Task Scheduler 등록 (매일 `schedule.end` 시간에 일지 생성)
 - `dj` CLI 전역 등록
 
@@ -41,7 +42,8 @@ dj                     # 도움말 표시
 dj help                # 도움말 표시
 dj config              # 현재 설정 확인
 dj logs                # 일지 생성 성공/실패 기록 확인
-dj write-journal       # 오늘 일지 수동 생성
+dj write-journal            # 오늘 일지 수동 생성
+dj write-journal 2026-02-25 # 특정 날짜 일지 수동 생성
 dj retry               # 실패/수정된 날짜의 일지 재생성
 dj setup               # 설정값 적용
 dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
@@ -111,7 +113,7 @@ dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
 dj uninstall
 ```
 
-Stop 훅, 스케줄러, `dj` CLI를 제거합니다. 일지 데이터(`~/.claude/daily-journal/`)는 삭제되지 않습니다.
+Stop 훅, 스케줄러, 쓰기 권한(`permissions.allow`), `dj` CLI를 제거합니다. 일지 데이터(`~/.claude/daily-journal/`)는 삭제되지 않습니다.
 플러그인 폴더까지 완전히 삭제하려면 `~/.claude/plugins/daily-journal`을 직접 삭제하세요.
 
 ## 재설치

@@ -332,7 +332,7 @@ var HOME = os2.homedir();
 var CLAUDE_DIR = path3.join(HOME, ".claude");
 var PLUGIN_DIR = path3.join(CLAUDE_DIR, "plugins", "daily-journal");
 var SETTINGS_PATH = path3.join(CLAUDE_DIR, "settings.json");
-function registerStopHook() {
+function initClaudeSetting() {
   const hookCommand = `node "${path3.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
   let settings = {};
   if (fs3.existsSync(SETTINGS_PATH)) {
@@ -353,8 +353,15 @@ function registerStopHook() {
     });
   }
   settings.hooks = { ...hooks, Stop: stopHooks };
+  const permissions = settings.permissions ?? {};
+  const allowList = permissions.allow ?? [];
+  const dailyJournalPermission = `Write(${path3.join(DATA_DIR, "**")})`;
+  if (!allowList.includes(dailyJournalPermission)) {
+    allowList.push(dailyJournalPermission);
+  }
+  settings.permissions = { ...permissions, allow: allowList };
   fs3.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5 \uB4F1\uB85D \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
 }
 function registerTaskScheduler(endTime) {
   if (process.platform === "win32") {
@@ -460,7 +467,7 @@ function setup() {
   fs3.mkdirSync(DATA_DIR, { recursive: true });
   console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR}`);
   createUserConfigIfAbsent();
-  registerStopHook();
+  initClaudeSetting();
   const config = loadConfig();
   if (config.schedule.use) {
     registerTaskScheduler(config.schedule.end);
@@ -485,7 +492,7 @@ function setup() {
   console.log("   \uB3C4\uC6C0\uB9D0 dj help");
   console.log("   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
 }
-function removeStopHook() {
+function removeClaudeSetting() {
   let settings = {};
   if (fs3.existsSync(SETTINGS_PATH)) {
     try {
@@ -497,11 +504,15 @@ function removeStopHook() {
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
   settings.hooks = { ...hooks, Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))) };
+  const permissions = settings.permissions ?? {};
+  const allowList = permissions.allow ?? [];
+  const dailyJournalPermission = `Write(${path3.join(DATA_DIR, "**")})`;
+  settings.permissions = { ...permissions, allow: allowList.filter((p) => p !== dailyJournalPermission) };
   fs3.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5 \uC81C\uAC70 \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
 function uninstall() {
-  removeStopHook();
+  removeClaudeSetting();
   console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
   unregisterTaskScheduler();
   try {
@@ -531,13 +542,13 @@ function loadRunHistory() {
   }
   return {};
 }
-function cmdWriteJournal() {
+function cmdWriteJournal(date) {
   const config = loadConfig();
-  const today = getDateString(config.timeZone);
+  const targetDate = date ?? getDateString(config.timeZone);
   console.log(`
-\uC624\uB298(${today}) \uC77C\uC9C0 \uC0DD\uC131 \uC911...
+${targetDate} \uC77C\uC9C0 \uC0DD\uC131 \uC911...
 `);
-  writeJournal(today, config);
+  writeJournal(targetDate, config);
   console.log("");
 }
 function cmdConfig() {
@@ -644,13 +655,13 @@ function cmdRetry() {
 }
 function cmdHelp() {
   console.log("\n\uC0AC\uC6A9\uBC95: dj <command>\n");
-  console.log("  help               \uC774 \uB3C4\uC6C0\uB9D0 \uD45C\uC2DC");
-  console.log("  config             \uD604\uC7AC \uC124\uC815 \uBC0F \uC635\uC158 \uD655\uC778");
-  console.log("  logs               \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
-  console.log("  write-journal      \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131");
-  console.log("  retry              \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
-  console.log("  setup              \uC124\uC815\uAC12 \uC801\uC6A9");
-  console.log("  uninstall          \uC124\uCE58 \uC0AD\uC81C\n");
+  console.log("  help                     \uC774 \uB3C4\uC6C0\uB9D0 \uD45C\uC2DC");
+  console.log("  config                   \uD604\uC7AC \uC124\uC815 \uBC0F \uC635\uC158 \uD655\uC778");
+  console.log("  logs                     \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
+  console.log("  write-journal [date]     \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131 (\uB0A0\uC9DC \uC9C0\uC815 \uC2DC \uD574\uB2F9 \uB0A0\uC9DC, \uC608: dj write-journal 2026-02-25)");
+  console.log("  retry                    \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
+  console.log("  setup                    \uC124\uC815\uAC12 \uC801\uC6A9");
+  console.log("  uninstall                \uC124\uCE58 \uC0AD\uC81C\n");
 }
 var command = process.argv[2];
 switch (command) {
@@ -665,7 +676,7 @@ switch (command) {
     break;
   case "write-journal":
     try {
-      cmdWriteJournal();
+      cmdWriteJournal(process.argv[3]);
     } catch (e) {
       logError(String(e));
       process.exit(1);

@@ -9,7 +9,8 @@ const CLAUDE_DIR = path.join(HOME, '.claude');
 const PLUGIN_DIR = path.join(CLAUDE_DIR, 'plugins', 'daily-journal');
 const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
 
-function registerStopHook(): void {
+function initClaudeSetting(): void {
+  // hook 등록
   const hookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'stop-hook.js')}"`;
 
   let settings: Record<string, unknown> = {};
@@ -36,8 +37,20 @@ function registerStopHook(): void {
   }
 
   settings.hooks = { ...hooks, Stop: stopHooks };
+
+  // 기록파일 쓰기권한 추가
+  const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
+  const allowList = (permissions.allow ?? []) as string[];
+  const dailyJournalPermission = `Write(${path.join(DATA_DIR, '**')})`;
+
+  if (!allowList.includes(dailyJournalPermission)) {
+    allowList.push(dailyJournalPermission);
+  }
+
+  settings.permissions = { ...permissions, allow: allowList };
+
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
-  console.log('✓ Stop 훅 등록 완료');
+  console.log('✓ Stop 훅, write 권한 등록 완료');
 }
 
 function registerTaskScheduler(endTime: string): void {
@@ -164,8 +177,8 @@ export function setup(): void {
   // 2. user-config.json 생성 (없을 때만)
   createUserConfigIfAbsent();
 
-  // 3. Stop 훅 등록
-  registerStopHook();
+  // 3. claudeSetting값 수정 ( 훅 등록, 쓰기권한 등록 )
+  initClaudeSetting();
 
   // 4. 스케쥴러 등록
   const config = loadConfig();
@@ -196,7 +209,7 @@ export function setup(): void {
   console.log('   ─────────────────────────────────────────────────');
 }
 
-function removeStopHook(): void {
+function removeClaudeSetting(): void {
   let settings: Record<string, unknown> = {};
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
@@ -209,13 +222,19 @@ function removeStopHook(): void {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
   const stopHooks = (hooks.Stop ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
   settings.hooks = { ...hooks, Stop: stopHooks.filter(h => !h.hooks?.some(hh => hh.command?.includes('daily-journal'))) };
+
+  const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
+  const allowList = (permissions.allow ?? []) as string[];
+  const dailyJournalPermission = `Write(${path.join(DATA_DIR, '**')})`;
+  settings.permissions = { ...permissions, allow: allowList.filter(p => p !== dailyJournalPermission) };
+
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
-  console.log('✓ Stop 훅 제거 완료');
+  console.log('✓ Stop 훅, write 권한 제거 완료');
 }
 
 export function uninstall(): void {
   // 1. Stop 훅 삭제
-  removeStopHook();
+  removeClaudeSetting();
 
   // 2. 스케쥴러 삭제
   console.log('스케줄러 제거.')

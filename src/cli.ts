@@ -19,11 +19,11 @@ function loadRunHistory(): Record<string, RunHistoryEntry> {
 
 // ─── write-journal ──────────────────────────────────────────────────────────
 
-function cmdWriteJournal(): void {
+function cmdWriteJournal(date?: string): void {
   const config = loadConfig();
-  const today = getDateString(config.timeZone);
-  console.log(`\n오늘(${today}) 일지 생성 중...\n`);
-  writeJournal(today, config);
+  const targetDate = date ?? getDateString(config.timeZone);
+  console.log(`\n${targetDate} 일지 생성 중...\n`);
+  writeJournal(targetDate, config);
   console.log('');
 }
 
@@ -124,13 +124,13 @@ function cmdRetry(): void {
 
 function cmdHelp(): void {
   console.log('\n사용법: dj <command>\n');
-  console.log('  help               이 도움말 표시');
-  console.log('  config             현재 설정 및 옵션 확인');
-  console.log('  logs               일지 생성 성공/실패 기록 확인');
-  console.log('  write-journal      오늘 일지 수동 생성');
-  console.log('  retry              일지 생성에 실패한 날짜 들의 일지 재생성');
-  console.log('  setup              설정값 적용');
-  console.log('  uninstall          설치 삭제\n');
+  console.log('  help                     이 도움말 표시');
+  console.log('  config                   현재 설정 및 옵션 확인');
+  console.log('  logs                     일지 생성 성공/실패 기록 확인');
+  console.log('  write-journal [date]     오늘 일지 수동 생성 (날짜 지정 시 해당 날짜, 예: dj write-journal 2026-02-25)');
+  console.log('  retry                    일지 생성에 실패한 날짜 들의 일지 재생성');
+  console.log('  setup                    설정값 적용');
+  console.log('  uninstall                설치 삭제\n');
 }
 
 // ─── router ────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ switch (command) {
     cmdLogs();
     break;
   case 'write-journal':
-    try { cmdWriteJournal(); } catch (e) { logError(String(e)); process.exit(1); }
+    try { cmdWriteJournal(process.argv[3]); } catch (e) { logError(String(e)); process.exit(1); }
     break;
   case 'retry':
     try { cmdRetry(); } catch (e) { logError(String(e)); process.exit(1); }
