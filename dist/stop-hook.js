@@ -151,7 +151,7 @@ function callClaude(input, model) {
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel], {
+  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none"], {
     input,
     encoding: "utf-8",
     timeout: 18e4,

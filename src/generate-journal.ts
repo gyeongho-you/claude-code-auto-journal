@@ -36,7 +36,7 @@ function buildPromptData(historyByProject: Record<string, HistoryEntry[]>): stri
   return Object.entries(historyByProject)
     .map(([project, entries]) => {
       const items = entries
-        .map(e => `- ${e.prompt}\n  → ${e.summary}`)
+        .map(e => `---\n[작업] ${e.prompt}\n[요약] ${e.summary.replace(/\n/g, ' ')}`)
         .join('\n');
       return `## ${project}\n${items}`;
     })
@@ -157,7 +157,8 @@ function generateSingle(date: string, data: string, config: Config): string | nu
     return null;
   }
 
-  return content;
+  const journalStart = content.search(/^#/m);
+  return journalStart > 0 ? content.slice(journalStart) : content;
 }
 
 function generateChunked(date: string, data: string, config: Config): string | null {
@@ -194,7 +195,8 @@ function generateChunked(date: string, data: string, config: Config): string | n
     return null;
   }
 
-  return content;
+  const journalStart = content.search(/^#/m);
+  return journalStart > 0 ? content.slice(journalStart) : content;
 }
 
 const isDirectRun = process.argv[1]?.endsWith('generate-journal.js') ||

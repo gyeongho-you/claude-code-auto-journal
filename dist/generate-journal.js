@@ -147,7 +147,7 @@ function callClaude(input, model) {
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel], {
+  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none"], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
@@ -181,8 +181,9 @@ function loadHistoryByProject(historyDir) {
 }
 function buildPromptData(historyByProject) {
   return Object.entries(historyByProject).map(([project, entries]) => {
-    const items = entries.map((e) => `- ${e.prompt}
-  \u2192 ${e.summary}`).join("\n");
+    const items = entries.map((e) => `---
+[\uC791\uC5C5] ${e.prompt}
+[\uC694\uC57D] ${e.summary.replace(/\n/g, " ")}`).join("\n");
     return `## ${project}
 ${items}`;
   }).join("\n\n");
@@ -286,7 +287,8 @@ ${data}`;
     recordRunHistory({ date, status: "failed", timestamp, error: "CLI \uC751\uB2F5 \uC5C6\uC74C" });
     return null;
   }
-  return content;
+  const journalStart = content.search(/^#/m);
+  return journalStart > 0 ? content.slice(journalStart) : content;
 }
 function generateChunked(date, data, config) {
   const chunks = splitIntoChunks(data, MAX_DATA_TOKENS);
@@ -322,7 +324,8 @@ ${combined}`;
     recordRunHistory({ date, status: "failed", timestamp, error: "\uCD5C\uC885 \uD1B5\uD569 \uC751\uB2F5 \uC5C6\uC74C" });
     return null;
   }
-  return content;
+  const journalStart = content.search(/^#/m);
+  return journalStart > 0 ? content.slice(journalStart) : content;
 }
 var isDirectRun = process.argv[1]?.endsWith("generate-journal.js") || process.argv[1]?.endsWith("generate-journal.ts");
 if (isDirectRun) {
