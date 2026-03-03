@@ -125,6 +125,7 @@ function logError(message) {
     const logPath = path.join(DATA_DIR, "error.log");
     fs.appendFileSync(logPath, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
 `);
+    console.error(`[Error] ${message}`);
   } catch {
   }
 }

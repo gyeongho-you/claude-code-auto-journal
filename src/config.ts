@@ -117,6 +117,7 @@ export function logError(message: string): void {
   try {
     const logPath = path.join(DATA_DIR, 'error.log');
     fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`);
+    console.error(`[Error] ${message}`);
   } catch {
     // 에러 로그 실패는 무시
   }
