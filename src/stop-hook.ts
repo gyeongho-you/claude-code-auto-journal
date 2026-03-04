@@ -52,7 +52,7 @@ function getLastUserMessage(transcriptPath: string): string | null {
 }
 
 function summarize(defaultPrompt: string, stylePrompt: string, response: string, model: ClaudeModel): string {
-  const input = `${defaultPrompt}\n${stylePrompt}\n\n---\n${response}`;
+  const input = `${defaultPrompt}\n${stylePrompt}\n\n<content>\n${response}\n</content>`;
   const result = callClaude(input, model);
 
   if (result.error || result.status !== 0) {

@@ -205,8 +205,9 @@ function summarize(defaultPrompt, stylePrompt, response, model) {
   const input = `${defaultPrompt}
 ${stylePrompt}
 
----
-${response}`;
+<content>
+${response}
+</content>`;
   const result = callClaude(input, model);
   if (result.error || result.status !== 0) {
     throw new Error(result.stderr || result.stdout || "claude CLI \uC2E4\uD328");
