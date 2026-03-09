@@ -35,6 +35,7 @@ export interface HistoryEntry {
   time: string;
   prompt: string;
   summary: string;
+  answer: string;
 }
 
 export interface RunHistoryEntry {

@@ -95,10 +95,14 @@ function main(): void {
     return;
   }
 
-  // 요약 사용 여부에 따라 대화내용 원본을 저장할지 요약본을 생성할지 결졍
-  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel) : last_assistant_message;
+  let summary = ""
 
-  if(summary.length === 0 || summary.trim().toUpperCase() === 'SKIP') return;
+  // 요약 사용 여부에 따라 대화내용 요약본을 생성할지 결정
+  if(config.summary.use){
+    summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel)
+
+    if(summary.trim().toUpperCase() === 'SKIP') return;
+  }
 
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
@@ -121,6 +125,7 @@ function main(): void {
     time,
     prompt,
     summary,
+    answer : last_assistant_message
   };
 
   fs.appendFileSync(

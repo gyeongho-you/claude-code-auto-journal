@@ -183,7 +183,7 @@ function buildPromptData(historyByProject) {
   return Object.entries(historyByProject).map(([project, entries]) => {
     const items = entries.map((e) => `---
 [\uC791\uC5C5] ${e.prompt}
-[\uC694\uC57D] ${e.summary.replace(/\n/g, " ")}`).join("\n");
+${e.summary ? "[\uC694\uC57D]" + e.summary.replace(/\n/g, " ") : "[\uC815\uB9AC\uD544\uC694]" + e.answer.replace(/\n/g, " ")}`).join("\n");
     return `## ${project}
 ${items}`;
   }).join("\n\n");

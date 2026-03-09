@@ -36,7 +36,7 @@ function buildPromptData(historyByProject: Record<string, HistoryEntry[]>): stri
   return Object.entries(historyByProject)
     .map(([project, entries]) => {
       const items = entries
-        .map(e => `---\n[작업] ${e.prompt}\n[요약] ${e.summary.replace(/\n/g, ' ')}`)
+        .map(e => `---\n[작업] ${e.prompt}\n${e.summary ? '[요약]' + e.summary.replace(/\n/g, ' ') : '[정리필요]' + e.answer.replace(/\n/g, ' ')}`)
         .join('\n');
       return `## ${project}\n${items}`;
     })

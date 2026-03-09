@@ -239,8 +239,11 @@ function main() {
     logError(`user \uBA54\uC2DC\uC9C0 \uCD94\uCD9C \uC2E4\uD328 (session: ${session_id}), skip`);
     return;
   }
-  const summary = config.summary.use ? summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel) : last_assistant_message;
-  if (summary.length === 0 || summary.trim().toUpperCase() === "SKIP") return;
+  let summary = "";
+  if (config.summary.use) {
+    summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel);
+    if (summary.trim().toUpperCase() === "SKIP") return;
+  }
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
   const historyDir = path2.join(todayDir, "history");
@@ -259,7 +262,8 @@ function main() {
   const entry = {
     time,
     prompt,
-    summary
+    summary,
+    answer: last_assistant_message
   };
   fs2.appendFileSync(
     path2.join(historyDir, `${projectName}.jsonl`),
