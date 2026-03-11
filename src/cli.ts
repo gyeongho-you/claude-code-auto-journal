@@ -5,8 +5,9 @@ import {DATA_DIR, loadConfig, logError, getDateString} from './config';
 import {RunHistoryEntry} from './types';
 import {writeJournal} from "./generate-journal";
 import {setup, uninstall} from "./setup";
+import {cmdView} from "./view";
 
-const RUN_HISTORY_PATH = path.join(DATA_DIR, 'run-history.json');
+export const RUN_HISTORY_PATH = path.join(DATA_DIR, 'run-history.json');
 
 function loadRunHistory(): Record<string, RunHistoryEntry> {
   try {
@@ -100,8 +101,12 @@ function cmdLogs(): void {
 
 function cmdRetry(): void {
   const history = loadRunHistory();
+  const config = loadConfig();
+
+  const dateStr = getDateString(config.timeZone);
+
   const failed = Object.values(history)
-    .filter(e => ( e.status === 'failed' || e.status === 'modified'))
+    .filter(e => ( e.status === 'failed' || e.status === 'modified' || (e.status === 'create' && e.date !== dateStr)))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   if (failed.length === 0) {
@@ -109,7 +114,6 @@ function cmdRetry(): void {
     return;
   }
 
-  const config = loadConfig();
   console.log(`\n실패/수정 항목 ${failed.length}건 재생성 시작...\n`);
 
   for (const entry of failed) {
@@ -129,6 +133,7 @@ function cmdHelp(): void {
   console.log('  logs                     일지 생성 성공/실패 기록 확인');
   console.log('  write-journal [date]     오늘 일지 수동 생성 (날짜 지정 시 해당 날짜, 예: dj write-journal 2026-02-25)');
   console.log('  retry                    일지 생성에 실패한 날짜 들의 일지 재생성');
+  console.log('  view                     방향키로 날짜별 일지 탐색');
   console.log('  setup                    설정값 적용');
   console.log('  uninstall                설치 삭제\n');
 }
@@ -152,6 +157,9 @@ switch (command) {
     break;
   case 'retry':
     try { cmdRetry(); } catch (e) { logError(String(e)); process.exit(1); }
+    break;
+  case 'view':
+    try { cmdView(); } catch (e) { logError(String(e)); process.exit(1); }
     break;
   case 'setup':
     try { setup(); } catch (e) { logError(String(e)); process.exit(1); }

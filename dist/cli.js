@@ -6,6 +6,10 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -22,10 +26,16 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/cli.ts
-var fs4 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var cli_exports = {};
+__export(cli_exports, {
+  RUN_HISTORY_PATH: () => RUN_HISTORY_PATH
+});
+module.exports = __toCommonJS(cli_exports);
+var fs5 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -536,12 +546,293 @@ if (isDirectRun2) {
   main2();
 }
 
-// src/cli.ts
-var RUN_HISTORY_PATH = path4.join(DATA_DIR, "run-history.json");
-function loadRunHistory() {
+// src/view.ts
+var fs4 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
+function cmdView() {
+  const config = loadConfig();
+  const outputDir = config.journal.output_dir;
+  let dates = [];
+  let contentList = [];
+  let histories = [];
+  let contentLines = [];
   try {
     if (fs4.existsSync(RUN_HISTORY_PATH)) {
-      return JSON.parse(fs4.readFileSync(RUN_HISTORY_PATH, "utf-8"));
+      const history = JSON.parse(fs4.readFileSync(RUN_HISTORY_PATH, "utf-8"));
+      dates = Object.values(history).filter((e) => e.status !== "no_data").map((e) => e.date).sort();
+    }
+  } catch {
+  }
+  if (dates.length === 0) {
+    console.log("\uD45C\uC2DC\uD560 \uC77C\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  let dateIdx = dates.length - 1;
+  let dateListOffset = 0;
+  let contentListIdx = 0;
+  let contentListOffset = 0;
+  let historyIdx = 0;
+  let scrollOffset = 0;
+  let deepCursor = 0;
+  function getTermSize() {
+    return {
+      rows: process.stdout.rows || 24,
+      cols: process.stdout.columns || 80
+    };
+  }
+  function loadContentList() {
+    const filePath = path4.join(outputDir, dates[dateIdx], "history");
+    try {
+      contentList = fs4.readdirSync(filePath);
+    } catch {
+    }
+  }
+  function dispWidth(s) {
+    let w = 0;
+    for (const ch of s) {
+      const cp = ch.codePointAt(0) ?? 0;
+      if (cp >= 4352 && cp <= 4447 || cp >= 11904 && cp <= 12350 || cp >= 12352 && cp <= 13311 || cp >= 13312 && cp <= 19903 || cp >= 19968 && cp <= 42191 || cp >= 44032 && cp <= 55295 || cp >= 63744 && cp <= 64255 || cp >= 65281 && cp <= 65376 || cp >= 65504 && cp <= 65510) {
+        w += 2;
+      } else {
+        w += 1;
+      }
+    }
+    return w;
+  }
+  function wrapLine(line, cols) {
+    if (dispWidth(line) <= cols) return [line];
+    const result = [];
+    let current = "";
+    let currentWidth = 0;
+    for (const ch of line) {
+      const chw = dispWidth(ch);
+      if (currentWidth + chw > cols) {
+        result.push(current);
+        current = ch;
+        currentWidth = chw;
+      } else {
+        current += ch;
+        currentWidth += chw;
+      }
+    }
+    if (current) result.push(current);
+    return result;
+  }
+  function buildContentLines(cols) {
+    const innerCols = cols - 2;
+    contentLines = histories.map((h) => {
+      const lines = [];
+      const addText = (text) => text.split("\n").forEach((l) => wrapLine(l, innerCols).forEach((w) => lines.push(`  ${w}`)));
+      lines.push(`\x1B[1;36m[ \uC9C8\uBB38 ]\x1B[0m`);
+      addText(h.prompt);
+      lines.push(``);
+      lines.push(`\x1B[1;32m[ \uC751\uB2F5 ]\x1B[0m`);
+      addText(h.answer);
+      lines.push(``);
+      lines.push(`\x1B[1;33m[ \uC694\uC57D ]\x1B[0m`);
+      addText(h.summary);
+      lines.push(``);
+      return lines;
+    });
+  }
+  function loadContent() {
+    const contentPath = path4.join(outputDir, dates[dateIdx], "history", contentList[contentListIdx]);
+    try {
+      const lines = fs4.readFileSync(contentPath, "utf-8").split("\n");
+      histories = lines.flatMap((l) => {
+        try {
+          return [JSON.parse(l)];
+        } catch (e) {
+          logError("\uC77C\uC9C0 \uC791\uC131\uC911 \uC190\uC0C1\uB41C history Skip: " + l);
+          return [];
+        }
+      });
+      buildContentLines(getTermSize().cols);
+    } catch {
+    }
+  }
+  function clampListOffset(idx, offset, contentHeight) {
+    if (idx < offset) return idx;
+    if (idx >= offset + contentHeight) return idx - contentHeight + 1;
+    return offset;
+  }
+  function renderDateList(contentHeight) {
+    const visibleDates = dates.slice(dateListOffset, dateListOffset + contentHeight);
+    visibleDates.forEach((d, i) => {
+      const actualIdx = dateListOffset + i;
+      process.stdout.write(`  ${actualIdx === dateIdx ? "\u25B7  " : "   "}${d}
+`);
+    });
+    for (let i = visibleDates.length; i < contentHeight; i++) {
+      process.stdout.write("\n");
+    }
+  }
+  function renderContentList(contentHeight, cols) {
+    process.stdout.write("\u2500".repeat(cols) + "\n");
+    if (contentList.length === 0) {
+      process.stdout.write("- \uC800\uC7A5\uB41C \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.\n");
+      for (let i = 1; i < contentHeight; i++) process.stdout.write("\n");
+    } else {
+      const visibleItems = contentList.slice(contentListOffset, contentListOffset + contentHeight);
+      visibleItems.forEach((item, i) => {
+        const actualIdx = contentListOffset + i;
+        process.stdout.write(`  ${actualIdx === contentListIdx ? "\u25B7  " : "   "}${item}
+`);
+      });
+      for (let i = visibleItems.length; i < contentHeight; i++) {
+        process.stdout.write("\n");
+      }
+    }
+  }
+  function renderContent(contentHeight, cols) {
+    const content = contentList[contentListIdx];
+    process.stdout.write(`  ${content}  (${contentListIdx + 1} / ${contentList.length})
+`);
+    process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]
+`);
+    process.stdout.write("\u2500".repeat(cols) + "\n");
+    const history = contentLines[historyIdx];
+    const maxScroll = Math.max(0, history.length - contentHeight);
+    if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+    const visible = history.slice(scrollOffset, scrollOffset + contentHeight);
+    visible.forEach((line) => process.stdout.write((line === "" ? "\u2500".repeat(cols) : line) + "\n"));
+    for (let i = visible.length; i < contentHeight; i++) {
+      process.stdout.write("\n");
+    }
+  }
+  function render() {
+    const { rows, cols } = getTermSize();
+    const date = dates[dateIdx];
+    process.stdout.write("\x1B[H\x1B[2J");
+    process.stdout.write(`\uAE30\uB85D \uBCF4\uAE30
+`);
+    if (deepCursor === 0) {
+      renderDateList(rows - 3);
+    } else {
+      const dateStr = `  ${date}  (${dateIdx + 1} / ${dates.length})`;
+      process.stdout.write(`\x1B[1m${dateStr}\x1B[0m
+`);
+      if (deepCursor === 1) {
+        renderContentList(rows - 5, cols);
+      } else {
+        renderContent(rows - 7, cols);
+      }
+    }
+    process.stdout.write("\u2500".repeat(cols) + "\n");
+    const hint = `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9 (history\uB294 \u25C0 \u25B6 \uB85C \uC774\uB3D9)  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
+    process.stdout.write(`\x1B[2m${hint}\x1B[0m`);
+  }
+  function exit() {
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    process.stdout.write("\x1B[?1049l");
+  }
+  process.stdout.write("\x1B[?1049h");
+  render();
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf-8");
+  process.stdout.on("resize", () => {
+    if (deepCursor === 2) buildContentLines(getTermSize().cols);
+    render();
+  });
+  process.stdin.on("data", (key) => {
+    const { rows } = getTermSize();
+    const ch0 = rows - 3;
+    const ch1 = rows - 5;
+    const ch2 = rows - 7;
+    if (key === "q" || key === "") {
+      exit();
+      process.exit(0);
+    } else if (key === "\x1B[A") {
+      if (deepCursor === 0) {
+        if (dateIdx > 0) {
+          dateIdx--;
+          dateListOffset = clampListOffset(dateIdx, dateListOffset, ch0);
+          render();
+        }
+      } else if (deepCursor === 1) {
+        if (contentListIdx > 0) {
+          contentListIdx--;
+          contentListOffset = clampListOffset(contentListIdx, contentListOffset, ch1);
+          render();
+        }
+      } else if (deepCursor === 2) {
+        if (scrollOffset > 0) {
+          scrollOffset--;
+          render();
+        }
+      }
+    } else if (key === "\x1B[B") {
+      if (deepCursor === 0) {
+        if (dateIdx < dates.length - 1) {
+          dateIdx++;
+          dateListOffset = clampListOffset(dateIdx, dateListOffset, ch0);
+          render();
+        }
+      } else if (deepCursor === 1) {
+        if (contentListIdx < contentList.length - 1) {
+          contentListIdx++;
+          contentListOffset = clampListOffset(contentListIdx, contentListOffset, ch1);
+          render();
+        }
+      } else if (deepCursor === 2) {
+        const maxScroll = Math.max(0, contentLines[historyIdx].length - ch2);
+        if (scrollOffset < maxScroll) {
+          scrollOffset++;
+          render();
+        }
+      }
+    } else if (key === "\x1B[C") {
+      if (deepCursor === 2) {
+        if (historyIdx < contentLines.length - 1) {
+          historyIdx++;
+          render();
+        }
+      }
+    } else if (key === "\x1B[D") {
+      if (deepCursor === 2) {
+        if (historyIdx > 0) {
+          historyIdx--;
+          render();
+        }
+      }
+    } else if (key === "\r" || key === "\r\n") {
+      if (deepCursor === 0) {
+        loadContentList();
+        contentListIdx = 0;
+        contentListOffset = 0;
+        deepCursor++;
+        render();
+      } else if (deepCursor === 1) {
+        loadContent();
+        scrollOffset = 0;
+        deepCursor++;
+        render();
+      }
+    } else if (key === "\x1B") {
+      if (deepCursor > 0) {
+        deepCursor--;
+        if (deepCursor === 1) {
+          historyIdx = 0;
+          scrollOffset = 0;
+        }
+        if (deepCursor === 0) {
+          contentListIdx = 0;
+          contentListOffset = 0;
+        }
+        render();
+      }
+    }
+  });
+}
+
+// src/cli.ts
+var RUN_HISTORY_PATH = path5.join(DATA_DIR, "run-history.json");
+function loadRunHistory() {
+  try {
+    if (fs5.existsSync(RUN_HISTORY_PATH)) {
+      return JSON.parse(fs5.readFileSync(RUN_HISTORY_PATH, "utf-8"));
     }
   } catch {
   }
@@ -558,8 +849,8 @@ ${targetDate} \uC77C\uC9C0 \uC0DD\uC131 \uC911...
 }
 function cmdConfig() {
   const config = loadConfig();
-  const userConfigPath = path4.join(DATA_DIR, "user-config.json");
-  const hasUserConfig = fs4.existsSync(userConfigPath);
+  const userConfigPath = path5.join(DATA_DIR, "user-config.json");
+  const hasUserConfig = fs5.existsSync(userConfigPath);
   console.log(`
 \uD604\uC7AC \uC124\uC815 (user-config.json ${hasUserConfig ? "\uC801\uC6A9\uB428" : "\uC5C6\uC74C \u2014 \uAE30\uBCF8\uAC12 \uC0AC\uC6A9"})
 `);
@@ -643,12 +934,13 @@ function cmdLogs() {
 }
 function cmdRetry() {
   const history = loadRunHistory();
-  const failed = Object.values(history).filter((e) => e.status === "failed" || e.status === "modified").sort((a, b) => a.date.localeCompare(b.date));
+  const config = loadConfig();
+  const dateStr = getDateString(config.timeZone);
+  const failed = Object.values(history).filter((e) => e.status === "failed" || e.status === "modified" || e.status === "create" && e.date !== dateStr).sort((a, b) => a.date.localeCompare(b.date));
   if (failed.length === 0) {
     console.log("\uC7AC\uC0DD\uC131\uD560 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
     return;
   }
-  const config = loadConfig();
   console.log(`
 \uC2E4\uD328/\uC218\uC815 \uD56D\uBAA9 ${failed.length}\uAC74 \uC7AC\uC0DD\uC131 \uC2DC\uC791...
 `);
@@ -665,6 +957,7 @@ function cmdHelp() {
   console.log("  logs                     \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
   console.log("  write-journal [date]     \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131 (\uB0A0\uC9DC \uC9C0\uC815 \uC2DC \uD574\uB2F9 \uB0A0\uC9DC, \uC608: dj write-journal 2026-02-25)");
   console.log("  retry                    \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
+  console.log("  view                     \uBC29\uD5A5\uD0A4\uB85C \uB0A0\uC9DC\uBCC4 \uC77C\uC9C0 \uD0D0\uC0C9");
   console.log("  setup                    \uC124\uC815\uAC12 \uC801\uC6A9");
   console.log("  uninstall                \uC124\uCE58 \uC0AD\uC81C\n");
 }
@@ -695,6 +988,14 @@ switch (command) {
       process.exit(1);
     }
     break;
+  case "view":
+    try {
+      cmdView();
+    } catch (e) {
+      logError(String(e));
+      process.exit(1);
+    }
+    break;
   case "setup":
     try {
       setup();
@@ -715,3 +1016,7 @@ switch (command) {
     cmdHelp();
     break;
 }
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  RUN_HISTORY_PATH
+});
