@@ -110,7 +110,7 @@ export function cmdView(): void {
       addText(h.prompt);
       lines.push(``);
       lines.push(`\x1b[1;32m[ 응답 ]\x1b[0m`);
-      addText(h.answer);
+      addText(h.answer ?? ' - ');
       lines.push(``);
       lines.push(`\x1b[1;33m[ 요약 ]\x1b[0m`);
       addText(h.summary);

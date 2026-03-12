@@ -627,7 +627,7 @@ function cmdView() {
       addText(h.prompt);
       lines.push(``);
       lines.push(`\x1B[1;32m[ \uC751\uB2F5 ]\x1B[0m`);
-      addText(h.answer);
+      addText(h.answer ?? " - ");
       lines.push(``);
       lines.push(`\x1B[1;33m[ \uC694\uC57D ]\x1B[0m`);
       addText(h.summary);
