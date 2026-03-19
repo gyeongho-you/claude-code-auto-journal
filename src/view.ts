@@ -286,6 +286,7 @@ export function cmdView(): void {
       if (deepCursor === 2) {
         if (historyIdx < contentLines.length - 1) {
           historyIdx++;
+          scrollOffset = 0;
           render();
         }
       }
@@ -293,6 +294,7 @@ export function cmdView(): void {
       if (deepCursor === 2) {
         if (historyIdx > 0) {
           historyIdx--;
+          scrollOffset = 0;
           render();
         }
       }

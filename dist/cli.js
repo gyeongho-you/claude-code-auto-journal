@@ -787,6 +787,7 @@ function cmdView() {
       if (deepCursor === 2) {
         if (historyIdx < contentLines.length - 1) {
           historyIdx++;
+          scrollOffset = 0;
           render();
         }
       }
@@ -794,6 +795,7 @@ function cmdView() {
       if (deepCursor === 2) {
         if (historyIdx > 0) {
           historyIdx--;
+          scrollOffset = 0;
           render();
         }
       }
