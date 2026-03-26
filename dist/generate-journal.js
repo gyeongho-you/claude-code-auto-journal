@@ -147,13 +147,15 @@ function callClaude(input, model) {
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  return (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none"], {
+  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text"], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
     shell: true,
     env
   });
+  const stdout = (result.stdout || "").trim() ? result.stdout : result.stderr;
+  return { ...result, stdout };
 }
 
 // src/generate-journal.ts

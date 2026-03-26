@@ -10,7 +10,7 @@ export function callClaude(input: string, model: ClaudeModel) : SpawnSyncReturns
 
     const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
 
-    return  spawnSync('claude', ['--print', '--model', claudeModel, '--allowedTools', 'none'], {
+    const result = spawnSync('claude', ['--print', '--model', claudeModel, '--allowedTools', 'none', '--output-format', 'text'], {
         input,
         encoding: 'utf-8',
         timeout: 180000,
@@ -18,4 +18,10 @@ export function callClaude(input: string, model: ClaudeModel) : SpawnSyncReturns
         env
     });
 
+    // Claude Code 2.x: --output-format text 응답이 stderr로 출력됨
+    const stdout = (result.stdout || '').trim()
+        ? result.stdout
+        : result.stderr;
+
+    return { ...result, stdout };
 }
