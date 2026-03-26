@@ -34,8 +34,8 @@ __export(cli_exports, {
   RUN_HISTORY_PATH: () => RUN_HISTORY_PATH
 });
 module.exports = __toCommonJS(cli_exports);
-var fs5 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var fs6 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -132,11 +132,14 @@ function logError(message) {
 }
 
 // src/generate-journal.ts
-var fs2 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var fs3 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
 
 // src/claude.ts
 var import_child_process = require("child_process");
+var fs2 = __toESM(require("fs"));
+var os2 = __toESM(require("os"));
+var path2 = __toESM(require("path"));
 
 // src/types.ts
 var ClaudeModel = {
@@ -147,12 +150,19 @@ var ClaudeModel = {
 };
 
 // src/claude.ts
+function getEmptyMcpConfigPath() {
+  const configPath = path2.join(os2.tmpdir(), "daily-journal-empty-mcp.json");
+  if (!fs2.existsSync(configPath)) {
+    fs2.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }), "utf-8");
+  }
+  return configPath;
+}
 function callClaude(input, model) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text"], {
+  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text", "--mcp-config", getEmptyMcpConfigPath(), "--strict-mcp-config"], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
@@ -170,10 +180,10 @@ function estimateTokens(text) {
 }
 function loadHistoryByProject(historyDir) {
   const result = {};
-  const files = fs2.readdirSync(historyDir).filter((f) => f.endsWith(".jsonl"));
+  const files = fs3.readdirSync(historyDir).filter((f) => f.endsWith(".jsonl"));
   for (const file of files) {
     const project = file.replace(".jsonl", "");
-    const lines = fs2.readFileSync(path2.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
+    const lines = fs3.readFileSync(path3.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
     result[project] = lines.flatMap((l) => {
       try {
         return [JSON.parse(l)];
@@ -244,10 +254,10 @@ function writeJournal(date, config) {
   }
 }
 function generateJournalForDate(date, config) {
-  const dateDir = path2.join(config.journal.output_dir, date);
-  const historyDir = path2.join(dateDir, "history");
+  const dateDir = path3.join(config.journal.output_dir, date);
+  const historyDir = path3.join(dateDir, "history");
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  if (!fs2.existsSync(historyDir)) {
+  if (!fs3.existsSync(historyDir)) {
     console.log(`  \uB370\uC774\uD130 \uC5C6\uC74C (history \uB514\uB809\uD1A0\uB9AC \uC5C6\uC74C)`);
     recordRunHistory({ date, status: "no_data", timestamp });
     return;
@@ -259,17 +269,17 @@ function generateJournalForDate(date, config) {
     console.log(`  \uD56D\uBAA9 ${entryCount}\uAC1C \u2192 \uC815\uB9AC\uC911 ...`);
     const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
     if (!journalContent) return;
-    fs2.mkdirSync(dateDir, { recursive: true });
-    fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
+    fs3.mkdirSync(dateDir, { recursive: true });
+    fs3.writeFileSync(path3.join(dateDir, "journal.md"), journalContent, "utf-8");
     recordRunHistory({ date, status: "success", timestamp });
-    console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
+    console.log(`  \u2713 \uC644\uB8CC \u2192 ${path3.join(dateDir, "journal.md")}`);
   } else {
     console.log(`  \uC815\uB9AC\uD560 \uD56D\uBAA9\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     recordRunHistory({ date, status: "no_data", timestamp });
     return;
   }
   if (config.cleanup && date !== getDateString(config.timeZone)) {
-    fs2.rmSync(historyDir, { recursive: true, force: true });
+    fs3.rmSync(historyDir, { recursive: true, force: true });
   }
 }
 function generateSingle(date, data, config) {
@@ -340,20 +350,20 @@ if (isDirectRun) {
 }
 
 // src/setup.ts
-var fs3 = __toESM(require("fs"));
-var os2 = __toESM(require("os"));
-var path3 = __toESM(require("path"));
+var fs4 = __toESM(require("fs"));
+var os3 = __toESM(require("os"));
+var path4 = __toESM(require("path"));
 var import_child_process2 = require("child_process");
-var HOME = os2.homedir();
-var CLAUDE_DIR = path3.join(HOME, ".claude");
-var PLUGIN_DIR = path3.join(CLAUDE_DIR, "plugins", "daily-journal");
-var SETTINGS_PATH = path3.join(CLAUDE_DIR, "settings.json");
+var HOME = os3.homedir();
+var CLAUDE_DIR = path4.join(HOME, ".claude");
+var PLUGIN_DIR = path4.join(CLAUDE_DIR, "plugins", "daily-journal");
+var SETTINGS_PATH = path4.join(CLAUDE_DIR, "settings.json");
 function initClaudeSetting() {
-  const hookCommand = `node "${path3.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
+  const hookCommand = `node "${path4.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
   let settings = {};
-  if (fs3.existsSync(SETTINGS_PATH)) {
+  if (fs4.existsSync(SETTINGS_PATH)) {
     try {
-      settings = JSON.parse(fs3.readFileSync(SETTINGS_PATH, "utf-8"));
+      settings = JSON.parse(fs4.readFileSync(SETTINGS_PATH, "utf-8"));
     } catch {
       settings = {};
     }
@@ -371,12 +381,12 @@ function initClaudeSetting() {
   settings.hooks = { ...hooks, Stop: stopHooks };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
-  const dailyJournalPermission = `Write(${path3.join(DATA_DIR, "**")})`;
+  const dailyJournalPermission = `Write(${path4.join(DATA_DIR, "**")})`;
   if (!allowList.includes(dailyJournalPermission)) {
     allowList.push(dailyJournalPermission);
   }
   settings.permissions = { ...permissions, allow: allowList };
-  fs3.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
+  fs4.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
   console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
 }
 function registerTaskScheduler(endTime) {
@@ -400,10 +410,10 @@ function unregisterTaskScheduler() {
     }
     const filtered = currentCrontab.split("\n").filter((l) => !l.includes("daily-journal-plugin")).filter(Boolean);
     if (filtered.length > 0) {
-      const tmpFile = path3.join(os2.tmpdir(), "daily-journal-crontab.tmp");
-      fs3.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
+      const tmpFile = path4.join(os3.tmpdir(), "daily-journal-crontab.tmp");
+      fs4.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
       (0, import_child_process2.execSync)(`crontab "${tmpFile}"`);
-      fs3.unlinkSync(tmpFile);
+      fs4.unlinkSync(tmpFile);
     } else {
       try {
         (0, import_child_process2.execSync)("crontab -r", { stdio: "ignore" });
@@ -417,7 +427,7 @@ function registerWindowsScheduler(endTime) {
   const [h, m] = endTime.split(":");
   const hour = h.padStart(2, "0");
   const minute = m.padStart(2, "0");
-  const generateScript = path3.join(PLUGIN_DIR, "dist", "generate-journal.js");
+  const generateScript = path4.join(PLUGIN_DIR, "dist", "generate-journal.js");
   const taskName = "DailyJournalPlugin";
   const deleteCmd = `schtasks /delete /tn "${taskName}" /f 2>nul`;
   const createCmd = [
@@ -435,7 +445,7 @@ function registerWindowsScheduler(endTime) {
 }
 function registerCronJob(endTime) {
   const [hour, minute] = endTime.split(":");
-  const generateScript = path3.join(PLUGIN_DIR, "dist", "generate-journal.js");
+  const generateScript = path4.join(PLUGIN_DIR, "dist", "generate-journal.js");
   const cronLine = `${minute} ${hour} * * * node "${generateScript}" # daily-journal-plugin`;
   let currentCrontab = "";
   try {
@@ -444,15 +454,15 @@ function registerCronJob(endTime) {
   }
   const filtered = currentCrontab.split("\n").filter((l) => !l.includes("daily-journal-plugin")).filter(Boolean);
   filtered.push(cronLine);
-  const tmpFile = path3.join(os2.tmpdir(), "daily-journal-crontab.tmp");
-  fs3.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
+  const tmpFile = path4.join(os3.tmpdir(), "daily-journal-crontab.tmp");
+  fs4.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
   (0, import_child_process2.execSync)(`crontab "${tmpFile}"`);
-  fs3.unlinkSync(tmpFile);
+  fs4.unlinkSync(tmpFile);
   console.log(`\u2713 cron \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
 }
 function createUserConfigIfAbsent() {
-  const userConfigPath = path3.join(DATA_DIR, "user-config.json");
-  if (fs3.existsSync(userConfigPath)) return;
+  const userConfigPath = path4.join(DATA_DIR, "user-config.json");
+  if (fs4.existsSync(userConfigPath)) return;
   const defaultConfig = loadDefaultConfig();
   const userConfig = {
     schedule: {
@@ -474,14 +484,14 @@ function createUserConfigIfAbsent() {
     save: defaultConfig.save,
     timeZone: defaultConfig.timeZone
   };
-  fs3.writeFileSync(userConfigPath, JSON.stringify(userConfig, null, 2), "utf-8");
+  fs4.writeFileSync(userConfigPath, JSON.stringify(userConfig, null, 2), "utf-8");
   console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
 }
 function main2() {
   setup();
 }
 function setup() {
-  fs3.mkdirSync(DATA_DIR, { recursive: true });
+  fs4.mkdirSync(DATA_DIR, { recursive: true });
   console.log(`\u2713 \uB370\uC774\uD130 \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131: ${DATA_DIR}`);
   createUserConfigIfAbsent();
   initClaudeSetting();
@@ -511,9 +521,9 @@ function setup() {
 }
 function removeClaudeSetting() {
   let settings = {};
-  if (fs3.existsSync(SETTINGS_PATH)) {
+  if (fs4.existsSync(SETTINGS_PATH)) {
     try {
-      settings = JSON.parse(fs3.readFileSync(SETTINGS_PATH, "utf-8"));
+      settings = JSON.parse(fs4.readFileSync(SETTINGS_PATH, "utf-8"));
     } catch {
       settings = {};
     }
@@ -523,9 +533,9 @@ function removeClaudeSetting() {
   settings.hooks = { ...hooks, Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))) };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
-  const dailyJournalPermission = `Write(${path3.join(DATA_DIR, "**")})`;
+  const dailyJournalPermission = `Write(${path4.join(DATA_DIR, "**")})`;
   settings.permissions = { ...permissions, allow: allowList.filter((p) => p !== dailyJournalPermission) };
-  fs3.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
+  fs4.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
   console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
 function uninstall() {
@@ -549,8 +559,8 @@ if (isDirectRun2) {
 }
 
 // src/view.ts
-var fs4 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 function cmdView() {
   const config = loadConfig();
   const outputDir = config.journal.output_dir;
@@ -559,8 +569,8 @@ function cmdView() {
   let histories = [];
   let contentLines = [];
   try {
-    if (fs4.existsSync(RUN_HISTORY_PATH)) {
-      const history = JSON.parse(fs4.readFileSync(RUN_HISTORY_PATH, "utf-8"));
+    if (fs5.existsSync(RUN_HISTORY_PATH)) {
+      const history = JSON.parse(fs5.readFileSync(RUN_HISTORY_PATH, "utf-8"));
       dates = Object.values(history).filter((e) => e.status !== "no_data").map((e) => e.date).sort();
     }
   } catch {
@@ -583,9 +593,9 @@ function cmdView() {
     };
   }
   function loadContentList() {
-    const filePath = path4.join(outputDir, dates[dateIdx], "history");
+    const filePath = path5.join(outputDir, dates[dateIdx], "history");
     try {
-      contentList = fs4.readdirSync(filePath);
+      contentList = fs5.readdirSync(filePath);
     } catch {
     }
   }
@@ -638,9 +648,9 @@ function cmdView() {
     });
   }
   function loadContent() {
-    const contentPath = path4.join(outputDir, dates[dateIdx], "history", contentList[contentListIdx]);
+    const contentPath = path5.join(outputDir, dates[dateIdx], "history", contentList[contentListIdx]);
     try {
-      const lines = fs4.readFileSync(contentPath, "utf-8").split("\n");
+      const lines = fs5.readFileSync(contentPath, "utf-8").split("\n");
       histories = lines.flatMap((l) => {
         try {
           return [JSON.parse(l)];
@@ -832,11 +842,11 @@ function cmdView() {
 }
 
 // src/cli.ts
-var RUN_HISTORY_PATH = path5.join(DATA_DIR, "run-history.json");
+var RUN_HISTORY_PATH = path6.join(DATA_DIR, "run-history.json");
 function loadRunHistory() {
   try {
-    if (fs5.existsSync(RUN_HISTORY_PATH)) {
-      return JSON.parse(fs5.readFileSync(RUN_HISTORY_PATH, "utf-8"));
+    if (fs6.existsSync(RUN_HISTORY_PATH)) {
+      return JSON.parse(fs6.readFileSync(RUN_HISTORY_PATH, "utf-8"));
     }
   } catch {
   }
@@ -853,8 +863,8 @@ ${targetDate} \uC77C\uC9C0 \uC0DD\uC131 \uC911...
 }
 function cmdConfig() {
   const config = loadConfig();
-  const userConfigPath = path5.join(DATA_DIR, "user-config.json");
-  const hasUserConfig = fs5.existsSync(userConfigPath);
+  const userConfigPath = path6.join(DATA_DIR, "user-config.json");
+  const hasUserConfig = fs6.existsSync(userConfigPath);
   console.log(`
 \uD604\uC7AC \uC124\uC815 (user-config.json ${hasUserConfig ? "\uC801\uC6A9\uB428" : "\uC5C6\uC74C \u2014 \uAE30\uBCF8\uAC12 \uC0AC\uC6A9"})
 `);

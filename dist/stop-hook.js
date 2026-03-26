@@ -23,8 +23,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/stop-hook.ts
-var fs2 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var fs3 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -136,6 +136,9 @@ function logError(message) {
 
 // src/claude.ts
 var import_child_process = require("child_process");
+var fs2 = __toESM(require("fs"));
+var os2 = __toESM(require("os"));
+var path2 = __toESM(require("path"));
 
 // src/types.ts
 var ClaudeModel = {
@@ -146,12 +149,19 @@ var ClaudeModel = {
 };
 
 // src/claude.ts
+function getEmptyMcpConfigPath() {
+  const configPath = path2.join(os2.tmpdir(), "daily-journal-empty-mcp.json");
+  if (!fs2.existsSync(configPath)) {
+    fs2.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }), "utf-8");
+  }
+  return configPath;
+}
 function callClaude(input, model) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text"], {
+  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text", "--mcp-config", getEmptyMcpConfigPath(), "--strict-mcp-config"], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
@@ -181,7 +191,7 @@ function extractProjectName(cwd) {
 }
 function getLastUserMessage(transcriptPath) {
   try {
-    const content = fs2.readFileSync(transcriptPath, "utf-8");
+    const content = fs3.readFileSync(transcriptPath, "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
@@ -224,7 +234,7 @@ function main() {
   if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
     return;
   }
-  const stdinData = fs2.readFileSync(0, "utf-8");
+  const stdinData = fs3.readFileSync(0, "utf-8");
   let payload;
   try {
     payload = JSON.parse(stdinData);
@@ -248,8 +258,8 @@ function main() {
   }
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
-  const historyDir = path2.join(todayDir, "history");
-  fs2.mkdirSync(historyDir, { recursive: true });
+  const historyDir = path3.join(todayDir, "history");
+  fs3.mkdirSync(historyDir, { recursive: true });
   const now = /* @__PURE__ */ new Date();
   const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: config.timeZone }).format(now);
   const timeParts = new Intl.DateTimeFormat("en-CA", {
@@ -267,8 +277,8 @@ function main() {
     summary,
     answer: last_assistant_message
   };
-  fs2.appendFileSync(
-    path2.join(historyDir, `${projectName}.jsonl`),
+  fs3.appendFileSync(
+    path3.join(historyDir, `${projectName}.jsonl`),
     JSON.stringify(entry) + "\n"
   );
   recordRunHistory({ date: getDateString(config.timeZone), status: "modified", timestamp: (/* @__PURE__ */ new Date()).toISOString() });

@@ -33,8 +33,8 @@ __export(generate_journal_exports, {
   writeJournal: () => writeJournal
 });
 module.exports = __toCommonJS(generate_journal_exports);
-var fs2 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var fs3 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -132,6 +132,9 @@ function logError(message) {
 
 // src/claude.ts
 var import_child_process = require("child_process");
+var fs2 = __toESM(require("fs"));
+var os2 = __toESM(require("os"));
+var path2 = __toESM(require("path"));
 
 // src/types.ts
 var ClaudeModel = {
@@ -142,12 +145,19 @@ var ClaudeModel = {
 };
 
 // src/claude.ts
+function getEmptyMcpConfigPath() {
+  const configPath = path2.join(os2.tmpdir(), "daily-journal-empty-mcp.json");
+  if (!fs2.existsSync(configPath)) {
+    fs2.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }), "utf-8");
+  }
+  return configPath;
+}
 function callClaude(input, model) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text"], {
+  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text", "--mcp-config", getEmptyMcpConfigPath(), "--strict-mcp-config"], {
     input,
     encoding: "utf-8",
     timeout: 18e4,
@@ -165,10 +175,10 @@ function estimateTokens(text) {
 }
 function loadHistoryByProject(historyDir) {
   const result = {};
-  const files = fs2.readdirSync(historyDir).filter((f) => f.endsWith(".jsonl"));
+  const files = fs3.readdirSync(historyDir).filter((f) => f.endsWith(".jsonl"));
   for (const file of files) {
     const project = file.replace(".jsonl", "");
-    const lines = fs2.readFileSync(path2.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
+    const lines = fs3.readFileSync(path3.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
     result[project] = lines.flatMap((l) => {
       try {
         return [JSON.parse(l)];
@@ -239,10 +249,10 @@ function writeJournal(date, config) {
   }
 }
 function generateJournalForDate(date, config) {
-  const dateDir = path2.join(config.journal.output_dir, date);
-  const historyDir = path2.join(dateDir, "history");
+  const dateDir = path3.join(config.journal.output_dir, date);
+  const historyDir = path3.join(dateDir, "history");
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  if (!fs2.existsSync(historyDir)) {
+  if (!fs3.existsSync(historyDir)) {
     console.log(`  \uB370\uC774\uD130 \uC5C6\uC74C (history \uB514\uB809\uD1A0\uB9AC \uC5C6\uC74C)`);
     recordRunHistory({ date, status: "no_data", timestamp });
     return;
@@ -254,17 +264,17 @@ function generateJournalForDate(date, config) {
     console.log(`  \uD56D\uBAA9 ${entryCount}\uAC1C \u2192 \uC815\uB9AC\uC911 ...`);
     const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
     if (!journalContent) return;
-    fs2.mkdirSync(dateDir, { recursive: true });
-    fs2.writeFileSync(path2.join(dateDir, "journal.md"), journalContent, "utf-8");
+    fs3.mkdirSync(dateDir, { recursive: true });
+    fs3.writeFileSync(path3.join(dateDir, "journal.md"), journalContent, "utf-8");
     recordRunHistory({ date, status: "success", timestamp });
-    console.log(`  \u2713 \uC644\uB8CC \u2192 ${path2.join(dateDir, "journal.md")}`);
+    console.log(`  \u2713 \uC644\uB8CC \u2192 ${path3.join(dateDir, "journal.md")}`);
   } else {
     console.log(`  \uC815\uB9AC\uD560 \uD56D\uBAA9\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     recordRunHistory({ date, status: "no_data", timestamp });
     return;
   }
   if (config.cleanup && date !== getDateString(config.timeZone)) {
-    fs2.rmSync(historyDir, { recursive: true, force: true });
+    fs3.rmSync(historyDir, { recursive: true, force: true });
   }
 }
 function generateSingle(date, data, config) {
