@@ -127,7 +127,7 @@ function recordRunHistory(entry) {
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
-    fs.appendFileSync(logPath, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
+    fs.appendFileSync(logPath, `[${getDateString(loadConfig().timeZone)}] ${message}
 `);
     console.error(`[Error] ${message}`);
   } catch {

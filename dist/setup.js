@@ -96,10 +96,13 @@ function loadConfig() {
     return defaultConfig;
   }
 }
+function getDateString(timeZone) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
+}
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
-    fs.appendFileSync(logPath, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
+    fs.appendFileSync(logPath, `[${getDateString(loadConfig().timeZone)}] ${message}
 `);
     console.error(`[Error] ${message}`);
   } catch {
