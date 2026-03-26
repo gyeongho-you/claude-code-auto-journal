@@ -87,6 +87,33 @@ function loadConfig() {
 function getDateString(timeZone) {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
 }
+function getDateStringWithHourMinutes(timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(/* @__PURE__ */ new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+}
+function getDateStringWithHourMinutesSeconds(timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(/* @__PURE__ */ new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
 function getNowMinutes(timeZone) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -127,7 +154,7 @@ function recordRunHistory(entry) {
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
-    fs.appendFileSync(logPath, `[${getDateString(loadConfig().timeZone)}] ${message}
+    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(loadConfig().timeZone)}] ${message}
 `);
     console.error(`[Error] ${message}`);
   } catch {
@@ -260,17 +287,7 @@ function main() {
   const todayDir = getTodayDir(config);
   const historyDir = path3.join(todayDir, "history");
   fs3.mkdirSync(historyDir, { recursive: true });
-  const now = /* @__PURE__ */ new Date();
-  const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: config.timeZone }).format(now);
-  const timeParts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: config.timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).formatToParts(now);
-  const h = timeParts.find((p) => p.type === "hour")?.value ?? "00";
-  const m = timeParts.find((p) => p.type === "minute")?.value ?? "00";
-  const time = `${dateStr} ${h}:${m}`;
+  const time = getDateStringWithHourMinutes(config.timeZone);
   const entry = {
     time,
     prompt,

@@ -67,6 +67,37 @@ export function getDateString(timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone }).format(new Date());
 }
 
+export function getDateStringWithHourMinutes(timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
+export function getDateStringWithHourMinutesSeconds(timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+}
+
 export function getNowMinutes(timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timeZone,
@@ -116,7 +147,7 @@ export function recordRunHistory(entry: RunHistoryEntry): void {
 export function logError(message: string): void {
   try {
     const logPath = path.join(DATA_DIR, 'error.log');
-    fs.appendFileSync(logPath, `[${getDateString(loadConfig().timeZone)}] ${message}\n`);
+    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(loadConfig().timeZone)}] ${message}\n`);
     console.error(`[Error] ${message}`);
   } catch {
     // 에러 로그 실패는 무시

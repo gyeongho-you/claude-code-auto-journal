@@ -98,6 +98,20 @@ function loadConfig() {
 function getDateString(timeZone) {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
 }
+function getDateStringWithHourMinutesSeconds(timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(/* @__PURE__ */ new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
 function recordRunHistory(entry) {
   try {
     const historyPath = path.join(DATA_DIR, "run-history.json");
@@ -124,7 +138,7 @@ function recordRunHistory(entry) {
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
-    fs.appendFileSync(logPath, `[${getDateString(loadConfig().timeZone)}] ${message}
+    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(loadConfig().timeZone)}] ${message}
 `);
     console.error(`[Error] ${message}`);
   } catch {
