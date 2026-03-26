@@ -10,7 +10,7 @@ export function callClaude(input: string, model: ClaudeModel) : SpawnSyncReturns
 
     const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
 
-    const result = spawnSync('claude', ['--print', '--model', claudeModel, '--allowedTools', 'none', '--output-format', 'text'], {
+    const result = spawnSync('claude', ['--print', '--model', claudeModel, '--allowedTools', 'none', '--output-format', 'text', '--mcp-config', '{}', '--strict-mcp-config'], {
         input,
         encoding: 'utf-8',
         timeout: 180000,
