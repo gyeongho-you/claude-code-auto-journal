@@ -46,6 +46,7 @@ dj write-journal            # 오늘 일지 수동 생성
 dj write-journal 2026-02-25 # 특정 날짜 일지 수동 생성
 dj retry               # 실패/수정된 날짜의 일지 재생성
 dj view                # 날짜별 대화 기록 탐색 (방향키로 조작)
+dj update              # 최신 버전으로 업데이트 (git pull + 빌드 + setup 재적용)
 dj setup               # 설정값 적용
 dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
 ```
