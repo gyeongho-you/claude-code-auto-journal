@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import {execSync} from 'child_process';
 import {DATA_DIR, loadConfig, logError, getDateString} from './config';
 import {RunHistoryEntry} from './types';
 import {writeJournal} from "./generate-journal";
@@ -124,6 +126,40 @@ function cmdRetry(): void {
   console.log('\n완료\n');
 }
 
+// ─── update ────────────────────────────────────────────────────────────────
+
+function cmdUpdate(): void {
+  const PLUGIN_DIR = path.join(os.homedir(), '.claude', 'plugins', 'daily-journal');
+
+  console.log('\ndaily-journal 업데이트 중...\n');
+
+  // 1. git pull
+  console.log('1. 최신 코드 받는 중 (git pull)...');
+  try {
+    const pullOutput = execSync('git pull', { cwd: PLUGIN_DIR, encoding: 'utf-8' });
+    console.log('  ' + pullOutput.trim().replace(/\n/g, '\n  '));
+  } catch (e: any) {
+    console.error('  ✗ git pull 실패:', e.stderr || String(e));
+    process.exit(1);
+  }
+
+  // 2. 빌드
+  console.log('2. 빌드 중...');
+  try {
+    execSync('npm run build:bundle', { cwd: PLUGIN_DIR, stdio: 'ignore' });
+    console.log('  ✓ 빌드 완료');
+  } catch (e: any) {
+    console.error('  ✗ 빌드 실패:', e.stderr || String(e));
+    process.exit(1);
+  }
+
+  // 3. setup 재실행 (훅/스케쥴러 재등록)
+  console.log('3. 설정 재적용 중...');
+  setup();
+
+  console.log('\n✅ 업데이트 완료\n');
+}
+
 // ─── help ──────────────────────────────────────────────────────────────────
 
 function cmdHelp(): void {
@@ -134,6 +170,7 @@ function cmdHelp(): void {
   console.log('  write-journal [date]     오늘 일지 수동 생성 (날짜 지정 시 해당 날짜, 예: dj write-journal 2026-02-25)');
   console.log('  retry                    일지 생성에 실패한 날짜 들의 일지 재생성');
   console.log('  view                     방향키로 날짜별 일지 탐색');
+  console.log('  update                   최신 버전으로 업데이트 (git pull + 빌드 + setup 재적용)');
   console.log('  setup                    설정값 적용');
   console.log('  uninstall                설치 삭제\n');
 }
@@ -160,6 +197,9 @@ switch (command) {
     break;
   case 'view':
     try { cmdView(); } catch (e) { logError(String(e)); process.exit(1); }
+    break;
+  case 'update':
+    try { cmdUpdate(); } catch (e) { logError(String(e)); process.exit(1); }
     break;
   case 'setup':
     try { setup(); } catch (e) { logError(String(e)); process.exit(1); }

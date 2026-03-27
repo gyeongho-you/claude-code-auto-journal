@@ -36,6 +36,8 @@ __export(cli_exports, {
 module.exports = __toCommonJS(cli_exports);
 var fs6 = __toESM(require("fs"));
 var path6 = __toESM(require("path"));
+var os4 = __toESM(require("os"));
+var import_child_process3 = require("child_process");
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -978,6 +980,29 @@ function cmdRetry() {
   }
   console.log("\n\uC644\uB8CC\n");
 }
+function cmdUpdate() {
+  const PLUGIN_DIR2 = path6.join(os4.homedir(), ".claude", "plugins", "daily-journal");
+  console.log("\ndaily-journal \uC5C5\uB370\uC774\uD2B8 \uC911...\n");
+  console.log("1. \uCD5C\uC2E0 \uCF54\uB4DC \uBC1B\uB294 \uC911 (git pull)...");
+  try {
+    const pullOutput = (0, import_child_process3.execSync)("git pull", { cwd: PLUGIN_DIR2, encoding: "utf-8" });
+    console.log("  " + pullOutput.trim().replace(/\n/g, "\n  "));
+  } catch (e) {
+    console.error("  \u2717 git pull \uC2E4\uD328:", e.stderr || String(e));
+    process.exit(1);
+  }
+  console.log("2. \uBE4C\uB4DC \uC911...");
+  try {
+    (0, import_child_process3.execSync)("npm run build:bundle", { cwd: PLUGIN_DIR2, stdio: "ignore" });
+    console.log("  \u2713 \uBE4C\uB4DC \uC644\uB8CC");
+  } catch (e) {
+    console.error("  \u2717 \uBE4C\uB4DC \uC2E4\uD328:", e.stderr || String(e));
+    process.exit(1);
+  }
+  console.log("3. \uC124\uC815 \uC7AC\uC801\uC6A9 \uC911...");
+  setup();
+  console.log("\n\u2705 \uC5C5\uB370\uC774\uD2B8 \uC644\uB8CC\n");
+}
 function cmdHelp() {
   console.log("\n\uC0AC\uC6A9\uBC95: dj <command>\n");
   console.log("  help                     \uC774 \uB3C4\uC6C0\uB9D0 \uD45C\uC2DC");
@@ -986,6 +1011,7 @@ function cmdHelp() {
   console.log("  write-journal [date]     \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131 (\uB0A0\uC9DC \uC9C0\uC815 \uC2DC \uD574\uB2F9 \uB0A0\uC9DC, \uC608: dj write-journal 2026-02-25)");
   console.log("  retry                    \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
   console.log("  view                     \uBC29\uD5A5\uD0A4\uB85C \uB0A0\uC9DC\uBCC4 \uC77C\uC9C0 \uD0D0\uC0C9");
+  console.log("  update                   \uCD5C\uC2E0 \uBC84\uC804\uC73C\uB85C \uC5C5\uB370\uC774\uD2B8 (git pull + \uBE4C\uB4DC + setup \uC7AC\uC801\uC6A9)");
   console.log("  setup                    \uC124\uC815\uAC12 \uC801\uC6A9");
   console.log("  uninstall                \uC124\uCE58 \uC0AD\uC81C\n");
 }
@@ -1019,6 +1045,14 @@ switch (command) {
   case "view":
     try {
       cmdView();
+    } catch (e) {
+      logError(String(e));
+      process.exit(1);
+    }
+    break;
+  case "update":
+    try {
+      cmdUpdate();
     } catch (e) {
       logError(String(e));
       process.exit(1);
