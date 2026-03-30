@@ -53,11 +53,11 @@ function initClaudeSetting(): void {
   console.log('✓ Stop 훅, write 권한 등록 완료');
 }
 
-function registerTaskScheduler(endTime: string): void {
+function registerTaskScheduler(generateTime: string): void {
   if (process.platform === 'win32') {
-    registerWindowsScheduler(endTime);
+    registerWindowsScheduler(generateTime);
   } else {
-    registerCronJob(endTime);
+    registerCronJob(generateTime);
   }
 }
 
@@ -113,8 +113,8 @@ function registerWindowsScheduler(endTime: string): void {
   console.log(`✓ Task Scheduler 등록 완료 (매일 ${endTime})`);
 }
 
-function registerCronJob(endTime: string): void {
-  const [hour, minute] = endTime.split(':');
+function registerCronJob(generateTime: string): void {
+  const [hour, minute] = generateTime.split(':');
   const generateScript = path.join(PLUGIN_DIR, 'dist', 'generate-journal.js');
   const cronLine = `${minute} ${hour} * * * node "${generateScript}" # daily-journal-plugin`;
 
@@ -133,7 +133,7 @@ function registerCronJob(endTime: string): void {
   execSync(`crontab "${tmpFile}"`);
   fs.unlinkSync(tmpFile);
 
-  console.log(`✓ cron 등록 완료 (매일 ${endTime})`);
+  console.log(`✓ cron 등록 완료 (매일 ${generateTime})`);
 }
 
 function createUserConfigIfAbsent(): void {
@@ -147,6 +147,7 @@ function createUserConfigIfAbsent(): void {
       use: defaultConfig.schedule.use,
       start: defaultConfig.schedule.start,
       end: defaultConfig.schedule.end,
+      generateAt: defaultConfig.schedule.generateAt,
     },
     summary: {
       use: defaultConfig.summary.use,
@@ -185,7 +186,7 @@ export function setup(): void {
   // 4. 스케쥴러 등록
   const config = loadConfig();
   if (config.schedule.use) {
-    registerTaskScheduler(config.schedule.end);
+    registerTaskScheduler(config.schedule.generateAt);
   } else {
     console.log('스케줄러 제거. (daily-journal.schedule.use: false)')
     unregisterTaskScheduler();
@@ -203,7 +204,7 @@ export function setup(): void {
   console.log('\n✅ daily-journal 플러그인 설치 완료');
   console.log(`   데이터 위치: ${DATA_DIR}`);
   if(config.schedule.use){
-    console.log(`   일지 생성 시간: 매일 ${config.schedule.end}`);
+    console.log(`   일지 생성 시간: 매일 ${config.schedule.generateAt}`);
   }
   console.log('\n   사용자 설정 파일: ~/.claude/daily-journal/user-config.json');
   console.log('\n   ─────────────────────────────────────────────────');

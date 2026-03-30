@@ -2,7 +2,8 @@
   "schedule": {
     "use": true,
     "start": "09:00",
-    "end": "18:00"
+    "end": "18:00",
+    "generateAt": "18:00"
   },
   "summary": {
     "use": true,

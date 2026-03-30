@@ -157,11 +157,11 @@ function initClaudeSetting() {
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
   console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
 }
-function registerTaskScheduler(endTime) {
+function registerTaskScheduler(generateTime) {
   if (process.platform === "win32") {
-    registerWindowsScheduler(endTime);
+    registerWindowsScheduler(generateTime);
   } else {
-    registerCronJob(endTime);
+    registerCronJob(generateTime);
   }
 }
 function unregisterTaskScheduler() {
@@ -211,8 +211,8 @@ function registerWindowsScheduler(endTime) {
   (0, import_child_process.execSync)(createCmd, { stdio: "inherit" });
   console.log(`\u2713 Task Scheduler \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
 }
-function registerCronJob(endTime) {
-  const [hour, minute] = endTime.split(":");
+function registerCronJob(generateTime) {
+  const [hour, minute] = generateTime.split(":");
   const generateScript = path2.join(PLUGIN_DIR, "dist", "generate-journal.js");
   const cronLine = `${minute} ${hour} * * * node "${generateScript}" # daily-journal-plugin`;
   let currentCrontab = "";
@@ -226,7 +226,7 @@ function registerCronJob(endTime) {
   fs2.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
   (0, import_child_process.execSync)(`crontab "${tmpFile}"`);
   fs2.unlinkSync(tmpFile);
-  console.log(`\u2713 cron \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
+  console.log(`\u2713 cron \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${generateTime})`);
 }
 function createUserConfigIfAbsent() {
   const userConfigPath = path2.join(DATA_DIR, "user-config.json");
@@ -236,7 +236,8 @@ function createUserConfigIfAbsent() {
     schedule: {
       use: defaultConfig.schedule.use,
       start: defaultConfig.schedule.start,
-      end: defaultConfig.schedule.end
+      end: defaultConfig.schedule.end,
+      generateAt: defaultConfig.schedule.generateAt
     },
     summary: {
       use: defaultConfig.summary.use,
@@ -265,7 +266,7 @@ function setup() {
   initClaudeSetting();
   const config = loadConfig();
   if (config.schedule.use) {
-    registerTaskScheduler(config.schedule.end);
+    registerTaskScheduler(config.schedule.generateAt);
   } else {
     console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70. (daily-journal.schedule.use: false)");
     unregisterTaskScheduler();
@@ -280,7 +281,7 @@ function setup() {
   console.log("\n\u2705 daily-journal \uD50C\uB7EC\uADF8\uC778 \uC124\uCE58 \uC644\uB8CC");
   console.log(`   \uB370\uC774\uD130 \uC704\uCE58: ${DATA_DIR}`);
   if (config.schedule.use) {
-    console.log(`   \uC77C\uC9C0 \uC0DD\uC131 \uC2DC\uAC04: \uB9E4\uC77C ${config.schedule.end}`);
+    console.log(`   \uC77C\uC9C0 \uC0DD\uC131 \uC2DC\uAC04: \uB9E4\uC77C ${config.schedule.generateAt}`);
   }
   console.log("\n   \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C: ~/.claude/daily-journal/user-config.json");
   console.log("\n   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");

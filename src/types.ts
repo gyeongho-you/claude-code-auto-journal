@@ -3,6 +3,7 @@ export interface Config {
     use: boolean;
     start: string;
     end: string;
+    generateAt: string;
   };
   summary: {
     use: boolean;

@@ -146,7 +146,7 @@ function cmdUpdate(): void {
   // 2. 빌드
   console.log('2. 빌드 중...');
   try {
-    execSync('npm run build:bundle', { cwd: PLUGIN_DIR, stdio: 'ignore' });
+    execSync('npm run build:bundle', { cwd: PLUGIN_DIR, encoding: 'utf-8', stdio: 'pipe' });
     console.log('  ✓ 빌드 완료');
   } catch (e: any) {
     console.error('  ✗ 빌드 실패:', e.stderr || String(e));

@@ -28,7 +28,7 @@ node ~/.claude/plugins/daily-journal/dist/setup.js
 - `user-config.json` 기본값으로 생성 (이미 존재하면 건너뜀)
 - Claude Code Stop 훅 등록
 - 데이터 디렉토리 쓰기 권한 등록 (`~/.claude/settings.json`의 `permissions.allow`에 `Write(~/.claude/daily-journal/**)` 추가)
-- Task Scheduler 등록 (매일 `schedule.end` 시간에 일지 생성)
+- Task Scheduler 등록 (매일 `schedule.generateAt` 시간에 일지 생성)
 - `dj` CLI 전역 등록
 
 설치 후 `~/.claude/daily-journal/user-config.json`을 열어 설정을 변경할 수 있습니다.
@@ -61,7 +61,8 @@ dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
   "schedule": {
     "use": true,
     "start": "09:00",
-    "end": "18:00"
+    "end": "18:00",
+    "generateAt": "18:00"
   },
   "summary": {
     "use": true,
@@ -161,7 +162,8 @@ Claude 세션이 끝날 때 마지막 응답을 요약할 때 사용됩니다.
 |------|--------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | `schedule.use` | `true` | `false`로 설정하면 스케줄러 등록 안 함. 수동으로 `dj write-journal` 사용. **변경 시 setup 재실행 필요**                                                              |
 | `schedule.start` | `"09:00"` | 훅 활성화 시작 시간. 이 시간 이전 대화는 기록 안 함                                                                                                           |
-| `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. 스케줄러가 이 시간에 일지 생성. **변경 시 setup 재실행 필요**                                                                                     |
+| `schedule.end` | `"18:00"` | 훅 활성화 종료 시간. 이 시간 이후 대화는 기록 안 함                                                                                                              |
+| `schedule.generateAt` | `"18:00"` | 일지 자동 생성 시간. 스케줄러가 이 시간에 일지 생성. **변경 시 setup 재실행 필요**                                                                                        |
 | `summary.use` | `true` | 원본 응답(`answer`)은 항상 저장됨. `true` 시 Claude가 추가로 요약을 생성해 함께 저장. `stylePrompt`로 SKIP을 반환하도록 설정하면 해당 대화는 저장하지 않음. `false` 시 요약 생성 생략 (Claude 호출 없음, 토큰 절약) |
 | `summary.claudeModel` | `"haiku"` | 요약에 사용할 모델. `"haiku"` / `"sonnet"` / `"opus"` 중 선택. 알 수 없는 값이면 `"haiku"`로 폴백                                                              |
 | `summary.stylePrompt` | 참고 | `summary.use: true`일 때 요약 스타일 지정 (형식, 길이 등)                                                                                               |
