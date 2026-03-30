@@ -136,13 +136,26 @@ function registerCronJob(generateTime: string): void {
   console.log(`✓ cron 등록 완료 (매일 ${generateTime})`);
 }
 
+function deepMergeDefaults(defaults: Record<string, unknown>, existing: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...existing };
+  for (const key of Object.keys(defaults)) {
+    if (!(key in result)) {
+      result[key] = defaults[key];
+    } else if (
+      typeof defaults[key] === 'object' && defaults[key] !== null && !Array.isArray(defaults[key]) &&
+      typeof result[key] === 'object' && result[key] !== null
+    ) {
+      result[key] = deepMergeDefaults(defaults[key] as Record<string, unknown>, result[key] as Record<string, unknown>);
+    }
+  }
+  return result;
+}
+
 function createUserConfigIfAbsent(): void {
   const userConfigPath = path.join(DATA_DIR, 'user-config.json');
-  if (fs.existsSync(userConfigPath)) return;
+  const defaultConfig = loadDefaultConfig();
 
-  const defaultConfig = loadDefaultConfig()
-
-  const userConfig = {
+  const userConfigTemplate: Record<string, unknown> = {
     schedule: {
       use: defaultConfig.schedule.use,
       start: defaultConfig.schedule.start,
@@ -164,8 +177,24 @@ function createUserConfigIfAbsent(): void {
     timeZone: defaultConfig.timeZone,
   };
 
-  fs.writeFileSync(userConfigPath, JSON.stringify(userConfig, null, 2), 'utf-8');
-  console.log(`✓ 사용자 설정 파일 생성: ${userConfigPath}`);
+  if (!fs.existsSync(userConfigPath)) {
+    fs.writeFileSync(userConfigPath, JSON.stringify(userConfigTemplate, null, 2), 'utf-8');
+    console.log(`✓ 사용자 설정 파일 생성: ${userConfigPath}`);
+    return;
+  }
+
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
+  } catch {
+    existing = {};
+  }
+
+  const updated = deepMergeDefaults(userConfigTemplate, existing);
+  if (JSON.stringify(updated) !== JSON.stringify(existing)) {
+    fs.writeFileSync(userConfigPath, JSON.stringify(updated, null, 2), 'utf-8');
+    console.log(`✓ 사용자 설정 파일 업데이트 (새 설정 추가): ${userConfigPath}`);
+  }
 }
 
 function main(): void {

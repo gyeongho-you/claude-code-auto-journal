@@ -228,11 +228,21 @@ function registerCronJob(generateTime) {
   fs2.unlinkSync(tmpFile);
   console.log(`\u2713 cron \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${generateTime})`);
 }
+function deepMergeDefaults(defaults, existing) {
+  const result = { ...existing };
+  for (const key of Object.keys(defaults)) {
+    if (!(key in result)) {
+      result[key] = defaults[key];
+    } else if (typeof defaults[key] === "object" && defaults[key] !== null && !Array.isArray(defaults[key]) && typeof result[key] === "object" && result[key] !== null) {
+      result[key] = deepMergeDefaults(defaults[key], result[key]);
+    }
+  }
+  return result;
+}
 function createUserConfigIfAbsent() {
   const userConfigPath = path2.join(DATA_DIR, "user-config.json");
-  if (fs2.existsSync(userConfigPath)) return;
   const defaultConfig = loadDefaultConfig();
-  const userConfig = {
+  const userConfigTemplate = {
     schedule: {
       use: defaultConfig.schedule.use,
       start: defaultConfig.schedule.start,
@@ -253,8 +263,22 @@ function createUserConfigIfAbsent() {
     save: defaultConfig.save,
     timeZone: defaultConfig.timeZone
   };
-  fs2.writeFileSync(userConfigPath, JSON.stringify(userConfig, null, 2), "utf-8");
-  console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
+  if (!fs2.existsSync(userConfigPath)) {
+    fs2.writeFileSync(userConfigPath, JSON.stringify(userConfigTemplate, null, 2), "utf-8");
+    console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
+    return;
+  }
+  let existing = {};
+  try {
+    existing = JSON.parse(fs2.readFileSync(userConfigPath, "utf-8"));
+  } catch {
+    existing = {};
+  }
+  const updated = deepMergeDefaults(userConfigTemplate, existing);
+  if (JSON.stringify(updated) !== JSON.stringify(existing)) {
+    fs2.writeFileSync(userConfigPath, JSON.stringify(updated, null, 2), "utf-8");
+    console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC5C5\uB370\uC774\uD2B8 (\uC0C8 \uC124\uC815 \uCD94\uAC00): ${userConfigPath}`);
+  }
 }
 function main() {
   setup();
