@@ -97,10 +97,15 @@ function main(): void {
     return;
   }
 
-  const prompt = getLastUserMessage(transcript_path);
+  let prompt = getLastUserMessage(transcript_path);
   if (!prompt) {
     logError(`user 메시지 추출 실패 (session: ${session_id}), skip`);
     return;
+  }
+
+  // 스킬 호출 시 전체 SKILL.md 대신 첫 줄(경로)만 저장 - 포멧 변경시 수정 필요
+  if (prompt.startsWith('Base directory for this skill:')) {
+    prompt = "skill 사용 \n" + prompt.split('\n')[0];
   }
 
   let summary = ""

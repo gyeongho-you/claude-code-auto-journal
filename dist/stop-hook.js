@@ -273,10 +273,13 @@ function main() {
   if (!last_assistant_message) {
     return;
   }
-  const prompt = getLastUserMessage(transcript_path);
+  let prompt = getLastUserMessage(transcript_path);
   if (!prompt) {
     logError(`user \uBA54\uC2DC\uC9C0 \uCD94\uCD9C \uC2E4\uD328 (session: ${session_id}), skip`);
     return;
+  }
+  if (prompt.startsWith("Base directory for this skill:")) {
+    prompt = "skill \uC0AC\uC6A9 \n" + prompt.split("\n")[0];
   }
   let summary = "";
   if (config.summary.use) {
