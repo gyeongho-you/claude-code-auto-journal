@@ -31,6 +31,7 @@ var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
   const configPath = path.join(__dirname, "..", "config.json");
@@ -151,6 +152,20 @@ function recordRunHistory(entry) {
   } catch {
   }
 }
+function readAndClearSessionEdits(sessionId) {
+  const filePath = path.join(SESSION_EDITS_DIR, `${sessionId}.json`);
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    try {
+      fs.unlinkSync(filePath);
+    } catch {
+    }
+    return data.edits ?? [];
+  } catch {
+    return [];
+  }
+}
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
@@ -257,10 +272,6 @@ function main() {
   if (process.env.DAILY_JOURNAL_RUNNING) {
     return;
   }
-  const config = loadConfig();
-  if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
-    return;
-  }
   const stdinData = fs3.readFileSync(0, "utf-8");
   let payload;
   try {
@@ -270,12 +281,19 @@ function main() {
     return;
   }
   const { session_id, cwd, last_assistant_message, transcript_path } = payload;
+  const config = loadConfig();
+  if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
+    readAndClearSessionEdits(session_id);
+    return;
+  }
   if (!last_assistant_message) {
+    readAndClearSessionEdits(session_id);
     return;
   }
   let prompt = getLastUserMessage(transcript_path);
   if (!prompt) {
     logError(`user \uBA54\uC2DC\uC9C0 \uCD94\uCD9C \uC2E4\uD328 (session: ${session_id}), skip`);
+    readAndClearSessionEdits(session_id);
     return;
   }
   if (prompt.startsWith("Base directory for this skill:")) {
@@ -284,18 +302,23 @@ function main() {
   let summary = "";
   if (config.summary.use) {
     summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel);
-    if (summary.trim().toUpperCase() === "SKIP") return;
+    if (summary.trim().toUpperCase() === "SKIP") {
+      readAndClearSessionEdits(session_id);
+      return;
+    }
   }
   const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
   const historyDir = path3.join(todayDir, "history");
   fs3.mkdirSync(historyDir, { recursive: true });
   const time = getDateStringWithHourMinutes(config.timeZone);
+  const fileEdits = readAndClearSessionEdits(session_id);
   const entry = {
     time,
     prompt,
     summary,
-    answer: last_assistant_message
+    answer: last_assistant_message,
+    ...fileEdits.length > 0 ? { fileEdits } : {}
   };
   fs3.appendFileSync(
     path3.join(historyDir, `${projectName}.jsonl`),

@@ -40,6 +40,10 @@ export function cmdView(): void {
   let historyIdx = 0;
   let scrollOffset = 0;           // 내용 열람 스크롤
   let deepCursor = 0; // 깊이 ( 날짜 = 0, 프로젝트 선택 = 1, 기록 열람 = 2 )
+  let showingFileEdits = false;
+  let fileEditIdx = 0;
+  let fileEditScrollOffset = 0;
+  let fileEditContentLines: string[][] = [];
 
   function getTermSize() {
     return {
@@ -97,6 +101,30 @@ export function cmdView(): void {
     }
     if (current) result.push(current);
     return result;
+  }
+
+  function buildFileEditLines(hIdx: number): void {
+    const h = histories[hIdx];
+    if (!h?.fileEdits || h.fileEdits.length === 0) {
+      fileEditContentLines = [];
+      return;
+    }
+    fileEditContentLines = h.fileEdits.map(edit => {
+      const lines: string[] = [];
+      if (edit.tool === 'Edit') {
+        (edit.before ?? '').split('\n').forEach(l => lines.push(`\x1b[31m- ${l}\x1b[0m`));
+        (edit.after ?? '').split('\n').forEach(l => lines.push(`\x1b[32m+ ${l}\x1b[0m`));
+      } else if (edit.tool === 'Write') {
+        if (edit.historyRef && fs.existsSync(edit.historyRef)) {
+          fs.readFileSync(edit.historyRef, 'utf-8')
+            .split('\n')
+            .forEach(l => lines.push(`\x1b[32m+ ${l}\x1b[0m`));
+        } else {
+          lines.push('  (file-history 참조를 찾을 수 없습니다)');
+        }
+      }
+      return lines;
+    });
   }
 
   function buildContentLines(cols: number): void {
@@ -170,11 +198,39 @@ export function cmdView(): void {
     }
   }
 
+  function renderFileEdits(contentHeight: number, cols: number): void {
+    const h = histories[historyIdx];
+    const edits = h?.fileEdits ?? [];
+
+    if (edits.length === 0) {
+      process.stdout.write('  수정된 파일이 없습니다.\n');
+      for (let i = 1; i < contentHeight + 2; i++) process.stdout.write('\n');
+      return;
+    }
+
+    const edit = edits[fileEditIdx];
+    const toolLabel = edit.tool === 'Write' ? '신규' : '수정';
+    process.stdout.write(`  ${edit.file}  \x1b[2m[${toolLabel}]\x1b[0m  (${fileEditIdx + 1} / ${edits.length})\n`);
+    process.stdout.write('─'.repeat(cols) + '\n');
+
+    const lines = fileEditContentLines[fileEditIdx] ?? [];
+    const maxScroll = Math.max(0, lines.length - contentHeight);
+    if (fileEditScrollOffset > maxScroll) fileEditScrollOffset = maxScroll;
+
+    const visible = lines.slice(fileEditScrollOffset, fileEditScrollOffset + contentHeight);
+    visible.forEach(line => process.stdout.write(line + '\n'));
+    for (let i = visible.length; i < contentHeight; i++) process.stdout.write('\n');
+  }
+
   function renderContent(contentHeight: number, cols: number): void {
     const content = contentList[contentListIdx];
     process.stdout.write(`  ${content}  (${contentListIdx + 1} / ${contentList.length})\n`);
-    process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]\n`);
     process.stdout.write('─'.repeat(cols) + '\n');
+
+    const currentHistory = histories[historyIdx];
+    const hasFileEdits = currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
+    const fileEditsHint = hasFileEdits ? `  \x1b[33m[수정파일 ${currentHistory.fileEdits?.length ?? 0}건 · f]\x1b[0m` : '';
+    process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]${fileEditsHint}\n`);
 
     const history = contentLines[historyIdx];
 
@@ -208,14 +264,23 @@ export function cmdView(): void {
         // 고정: 헤더2 + separator1(renderContentList 내부) + 푸터2 = 5
         renderContentList(rows - 5, cols);
       } else {
-        // 고정: 헤더2 + filename1 + historyPage1 + separator1(renderContent 내부) + 푸터2 = 7
-        renderContent(rows - 7, cols);
+        if (showingFileEdits) {
+          // 고정: 헤더2 + filename1 + separator1 + 푸터2 = 6
+          renderFileEdits(rows - 6, cols);
+        } else {
+          // 고정: 헤더2 + filename1 + historyPage1 + separator1 + 푸터2 = 7
+          renderContent(rows - 7, cols);
+        }
       }
     }
 
     // 푸터
     process.stdout.write('─'.repeat(cols) + '\n');
-    const hint = `▲▼ 선택 이동 (history는 ◀ ▶ 로 이동)  /  enter 선택  /  esc 뒤로가기  /  q 종료`;
+    const hint = deepCursor === 2
+      ? (showingFileEdits
+          ? `▲▼ 스크롤  /  ◀ ▶ 파일 이동  /  f·esc 대화로 돌아가기  /  q 종료`
+          : `▲▼ 스크롤  /  ◀ ▶ history 이동  /  f 수정파일 보기  /  esc 뒤로가기  /  q 종료`)
+      : `▲▼ 선택 이동  /  enter 선택  /  esc 뒤로가기  /  q 종료`;
     process.stdout.write(`\x1b[2m${hint}\x1b[0m`);
   }
 
@@ -245,6 +310,7 @@ export function cmdView(): void {
     const ch0 = rows - 3;
     const ch1 = rows - 5;
     const ch2 = rows - 7;
+    const chFile = rows - 6; // renderFileEdits 콘텐츠 높이
 
     if (key === 'q' || key === '\x03') { // q 또는 Ctrl+C
       exit();
@@ -263,7 +329,12 @@ export function cmdView(): void {
           render();
         }
       } else if (deepCursor === 2) {
-        if (scrollOffset > 0) { scrollOffset--; render(); }
+        if (showingFileEdits) {
+          if (fileEditScrollOffset > 0) { fileEditScrollOffset--; render(); }
+        } else {
+          if (scrollOffset > 0) { scrollOffset--; render(); }
+        }
+
       }
     } else if (key === '\x1b[B') { // 아래
       if (deepCursor === 0) {
@@ -279,26 +350,42 @@ export function cmdView(): void {
           render();
         }
       } else if (deepCursor === 2) {
-        const maxScroll = Math.max(0, contentLines[historyIdx].length - ch2);
-        if (scrollOffset < maxScroll) { scrollOffset++; render(); }
+        if (showingFileEdits) {
+          const maxScroll = Math.max(0, (fileEditContentLines[fileEditIdx]?.length ?? 0) - chFile);
+          if (fileEditScrollOffset < maxScroll) { fileEditScrollOffset++; render(); }
+        } else {
+          const maxScroll = Math.max(0, contentLines[historyIdx].length - ch2);
+          if (scrollOffset < maxScroll) { scrollOffset++; render(); }
+        }
       }
-    }  else if (key === '\x1b[C') { // 오른쪽
+    } else if (key === '\x1b[C') { // 오른쪽
       if (deepCursor === 2) {
-        if (historyIdx < contentLines.length - 1) {
-          historyIdx++;
-          scrollOffset = 0;
-          render();
+        if (showingFileEdits) {
+          const edits = histories[historyIdx]?.fileEdits ?? [];
+          if (fileEditIdx < edits.length - 1) { fileEditIdx++; fileEditScrollOffset = 0; render(); }
+        } else {
+          if (historyIdx < contentLines.length - 1) { historyIdx++; scrollOffset = 0; render(); }
         }
       }
     } else if (key === '\x1b[D') { // 왼쪽
       if (deepCursor === 2) {
-        if (historyIdx > 0) {
-          historyIdx--;
-          scrollOffset = 0;
-          render();
+        if (showingFileEdits) {
+          if (fileEditIdx > 0) { fileEditIdx--; fileEditScrollOffset = 0; render(); }
+        } else {
+          if (historyIdx > 0) { historyIdx--; scrollOffset = 0; render(); }
         }
       }
-    }else if (key === '\r' || key === '\r\n') { // 선택
+    } else if (key === 'f' && deepCursor === 2) {
+      if (showingFileEdits) {
+        showingFileEdits = false;
+      } else {
+        buildFileEditLines(historyIdx);
+        fileEditIdx = 0;
+        fileEditScrollOffset = 0;
+        showingFileEdits = true;
+      }
+      render();
+    } else if (key === '\r' || key === '\r\n') { // 선택
       if (deepCursor === 0) {
         loadContentList();
         contentListIdx = 0;
@@ -312,7 +399,10 @@ export function cmdView(): void {
         render();
       }
     } else if (key === '\x1b') { // 뒤로가기
-      if (deepCursor > 0) {
+      if (showingFileEdits) {
+        showingFileEdits = false;
+        render();
+      } else if (deepCursor > 0) {
         deepCursor--;
         if (deepCursor === 1) { historyIdx = 0; scrollOffset = 0; }
         if (deepCursor === 0) { contentListIdx = 0; contentListOffset = 0; }

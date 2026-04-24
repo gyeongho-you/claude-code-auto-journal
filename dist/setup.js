@@ -43,6 +43,7 @@ var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
   const configPath = path.join(__dirname, "..", "config.json");
@@ -127,7 +128,8 @@ var CLAUDE_DIR = path2.join(HOME, ".claude");
 var PLUGIN_DIR = path2.join(CLAUDE_DIR, "plugins", "daily-journal");
 var SETTINGS_PATH = path2.join(CLAUDE_DIR, "settings.json");
 function initClaudeSetting() {
-  const hookCommand = `node "${path2.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
+  const stopHookCommand = `node "${path2.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
+  const fileEditHookCommand = `node "${path2.join(PLUGIN_DIR, "dist", "file-edit-hook.js")}"`;
   let settings = {};
   if (fs2.existsSync(SETTINGS_PATH)) {
     try {
@@ -138,15 +140,23 @@ function initClaudeSetting() {
   }
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
-  const alreadyRegistered = stopHooks.some(
+  const stopAlreadyRegistered = stopHooks.some(
     (h) => h.hooks?.some((hh) => hh.command?.includes("daily-journal"))
   );
-  if (!alreadyRegistered) {
-    stopHooks.push({
-      hooks: [{ type: "command", command: hookCommand }]
+  if (!stopAlreadyRegistered) {
+    stopHooks.push({ hooks: [{ type: "command", command: stopHookCommand }] });
+  }
+  const postToolUseHooks = hooks.PostToolUse ?? [];
+  const postToolUseAlreadyRegistered = postToolUseHooks.some(
+    (h) => h.hooks?.some((hh) => hh.command?.includes("daily-journal"))
+  );
+  if (!postToolUseAlreadyRegistered) {
+    postToolUseHooks.push({
+      matcher: "Edit|Write",
+      hooks: [{ type: "command", command: fileEditHookCommand }]
     });
   }
-  settings.hooks = { ...hooks, Stop: stopHooks };
+  settings.hooks = { ...hooks, Stop: stopHooks, PostToolUse: postToolUseHooks };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
   const dailyJournalPermission = `Write(${path2.join(DATA_DIR, "**")})`;
@@ -155,7 +165,7 @@ function initClaudeSetting() {
   }
   settings.permissions = { ...permissions, allow: allowList };
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
 }
 function registerTaskScheduler(generateTime) {
   if (process.platform === "win32") {
@@ -323,13 +333,18 @@ function removeClaudeSetting() {
   }
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
-  settings.hooks = { ...hooks, Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))) };
+  const postToolUseHooks = hooks.PostToolUse ?? [];
+  settings.hooks = {
+    ...hooks,
+    Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))),
+    PostToolUse: postToolUseHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal")))
+  };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
   const dailyJournalPermission = `Write(${path2.join(DATA_DIR, "**")})`;
   settings.permissions = { ...permissions, allow: allowList.filter((p) => p !== dailyJournalPermission) };
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
 function uninstall() {
   removeClaudeSetting();

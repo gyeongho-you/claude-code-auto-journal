@@ -7,6 +7,7 @@ import {
   getTodayDir,
   loadConfig,
   logError,
+  readAndClearSessionEdits,
   recordRunHistory
 } from './config';
 import {ClaudeModel, HistoryEntry, StdinPayload, TranscriptLine} from './types';
@@ -75,12 +76,6 @@ function main(): void {
     return;
   }
 
-  const config = loadConfig();
-
-  if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
-    return;
-  }
-
   // stdin 읽기 (fd 0 = cross-platform)
   const stdinData = fs.readFileSync(0, 'utf-8');
   let payload: StdinPayload;
@@ -93,13 +88,22 @@ function main(): void {
 
   const { session_id, cwd, last_assistant_message, transcript_path } = payload;
 
+  const config = loadConfig();
+
+  if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
+    readAndClearSessionEdits(session_id);
+    return;
+  }
+
   if (!last_assistant_message) {
+    readAndClearSessionEdits(session_id);
     return;
   }
 
   let prompt = getLastUserMessage(transcript_path);
   if (!prompt) {
     logError(`user 메시지 추출 실패 (session: ${session_id}), skip`);
+    readAndClearSessionEdits(session_id);
     return;
   }
 
@@ -114,7 +118,10 @@ function main(): void {
   if(config.summary.use){
     summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel)
 
-    if(summary.trim().toUpperCase() === 'SKIP') return;
+    if(summary.trim().toUpperCase() === 'SKIP') {
+      readAndClearSessionEdits(session_id);
+      return;
+    }
   }
 
   const projectName = extractProjectName(cwd);
@@ -123,12 +130,14 @@ function main(): void {
   fs.mkdirSync(historyDir, { recursive: true });
 
   const time = getDateStringWithHourMinutes(config.timeZone)
+  const fileEdits = readAndClearSessionEdits(session_id);
 
   const entry: HistoryEntry = {
     time,
     prompt,
     summary,
-    answer : last_assistant_message
+    answer: last_assistant_message,
+    ...(fileEdits.length > 0 ? { fileEdits } : {}),
   };
 
   fs.appendFileSync(

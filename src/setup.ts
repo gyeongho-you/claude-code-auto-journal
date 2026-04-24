@@ -10,8 +10,8 @@ const PLUGIN_DIR = path.join(CLAUDE_DIR, 'plugins', 'daily-journal');
 const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
 
 function initClaudeSetting(): void {
-  // hook 등록
-  const hookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'stop-hook.js')}"`;
+  const stopHookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'stop-hook.js')}"`;
+  const fileEditHookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'file-edit-hook.js')}"`;
 
   let settings: Record<string, unknown> = {};
   if (fs.existsSync(SETTINGS_PATH)) {
@@ -23,20 +23,30 @@ function initClaudeSetting(): void {
   }
 
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-  const stopHooks = (hooks.Stop ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
 
-  // 이미 등록된 경우 skip
-  const alreadyRegistered = stopHooks.some(h =>
+  // Stop 훅
+  const stopHooks = (hooks.Stop ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
+  const stopAlreadyRegistered = stopHooks.some(h =>
     h.hooks?.some(hh => hh.command?.includes('daily-journal'))
   );
+  if (!stopAlreadyRegistered) {
+    stopHooks.push({ hooks: [{ type: 'command', command: stopHookCommand }] });
+  }
 
-  if (!alreadyRegistered) {
-    stopHooks.push({
-      hooks: [{ type: 'command', command: hookCommand }],
+  // PostToolUse 훅
+  type PostToolUseHook = { matcher?: string; hooks: Array<{ type: string; command: string }> };
+  const postToolUseHooks = (hooks.PostToolUse ?? []) as PostToolUseHook[];
+  const postToolUseAlreadyRegistered = postToolUseHooks.some(h =>
+    h.hooks?.some(hh => hh.command?.includes('daily-journal'))
+  );
+  if (!postToolUseAlreadyRegistered) {
+    postToolUseHooks.push({
+      matcher: 'Edit|Write',
+      hooks: [{ type: 'command', command: fileEditHookCommand }],
     });
   }
 
-  settings.hooks = { ...hooks, Stop: stopHooks };
+  settings.hooks = { ...hooks, Stop: stopHooks, PostToolUse: postToolUseHooks };
 
   // 기록파일 쓰기권한 추가
   const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
@@ -50,7 +60,7 @@ function initClaudeSetting(): void {
   settings.permissions = { ...permissions, allow: allowList };
 
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
-  console.log('✓ Stop 훅, write 권한 등록 완료');
+  console.log('✓ Stop 훅, PostToolUse 훅, write 권한 등록 완료');
 }
 
 function registerTaskScheduler(generateTime: string): void {
@@ -183,7 +193,7 @@ function createUserConfigIfAbsent(): void {
     return;
   }
 
-  let existing: Record<string, unknown> = {};
+  let existing: Record<string, unknown>
   try {
     existing = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
   } catch {
@@ -253,7 +263,12 @@ function removeClaudeSetting(): void {
 
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
   const stopHooks = (hooks.Stop ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
-  settings.hooks = { ...hooks, Stop: stopHooks.filter(h => !h.hooks?.some(hh => hh.command?.includes('daily-journal'))) };
+  const postToolUseHooks = (hooks.PostToolUse ?? []) as Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>;
+  settings.hooks = {
+    ...hooks,
+    Stop: stopHooks.filter(h => !h.hooks?.some(hh => hh.command?.includes('daily-journal'))),
+    PostToolUse: postToolUseHooks.filter(h => !h.hooks?.some(hh => hh.command?.includes('daily-journal'))),
+  };
 
   const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
   const allowList = (permissions.allow ?? []) as string[];
@@ -261,7 +276,7 @@ function removeClaudeSetting(): void {
   settings.permissions = { ...permissions, allow: allowList.filter(p => p !== dailyJournalPermission) };
 
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
-  console.log('✓ Stop 훅, write 권한 제거 완료');
+  console.log('✓ Stop 훅, PostToolUse 훅, write 권한 제거 완료');
 }
 
 export function uninstall(): void {

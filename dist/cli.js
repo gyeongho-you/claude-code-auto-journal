@@ -44,6 +44,7 @@ var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
   const configPath = path.join(__dirname, "..", "config.json");
@@ -375,7 +376,8 @@ var CLAUDE_DIR = path4.join(HOME, ".claude");
 var PLUGIN_DIR = path4.join(CLAUDE_DIR, "plugins", "daily-journal");
 var SETTINGS_PATH = path4.join(CLAUDE_DIR, "settings.json");
 function initClaudeSetting() {
-  const hookCommand = `node "${path4.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
+  const stopHookCommand = `node "${path4.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
+  const fileEditHookCommand = `node "${path4.join(PLUGIN_DIR, "dist", "file-edit-hook.js")}"`;
   let settings = {};
   if (fs4.existsSync(SETTINGS_PATH)) {
     try {
@@ -386,15 +388,23 @@ function initClaudeSetting() {
   }
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
-  const alreadyRegistered = stopHooks.some(
+  const stopAlreadyRegistered = stopHooks.some(
     (h) => h.hooks?.some((hh) => hh.command?.includes("daily-journal"))
   );
-  if (!alreadyRegistered) {
-    stopHooks.push({
-      hooks: [{ type: "command", command: hookCommand }]
+  if (!stopAlreadyRegistered) {
+    stopHooks.push({ hooks: [{ type: "command", command: stopHookCommand }] });
+  }
+  const postToolUseHooks = hooks.PostToolUse ?? [];
+  const postToolUseAlreadyRegistered = postToolUseHooks.some(
+    (h) => h.hooks?.some((hh) => hh.command?.includes("daily-journal"))
+  );
+  if (!postToolUseAlreadyRegistered) {
+    postToolUseHooks.push({
+      matcher: "Edit|Write",
+      hooks: [{ type: "command", command: fileEditHookCommand }]
     });
   }
-  settings.hooks = { ...hooks, Stop: stopHooks };
+  settings.hooks = { ...hooks, Stop: stopHooks, PostToolUse: postToolUseHooks };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
   const dailyJournalPermission = `Write(${path4.join(DATA_DIR, "**")})`;
@@ -403,7 +413,7 @@ function initClaudeSetting() {
   }
   settings.permissions = { ...permissions, allow: allowList };
   fs4.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
 }
 function registerTaskScheduler(generateTime) {
   if (process.platform === "win32") {
@@ -571,13 +581,18 @@ function removeClaudeSetting() {
   }
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
-  settings.hooks = { ...hooks, Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))) };
+  const postToolUseHooks = hooks.PostToolUse ?? [];
+  settings.hooks = {
+    ...hooks,
+    Stop: stopHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal"))),
+    PostToolUse: postToolUseHooks.filter((h) => !h.hooks?.some((hh) => hh.command?.includes("daily-journal")))
+  };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
   const dailyJournalPermission = `Write(${path4.join(DATA_DIR, "**")})`;
   settings.permissions = { ...permissions, allow: allowList.filter((p) => p !== dailyJournalPermission) };
   fs4.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
+  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
 function uninstall() {
   removeClaudeSetting();
@@ -627,6 +642,10 @@ function cmdView() {
   let historyIdx = 0;
   let scrollOffset = 0;
   let deepCursor = 0;
+  let showingFileEdits = false;
+  let fileEditIdx = 0;
+  let fileEditScrollOffset = 0;
+  let fileEditContentLines = [];
   function getTermSize() {
     return {
       rows: process.stdout.rows || 24,
@@ -670,6 +689,27 @@ function cmdView() {
     }
     if (current) result.push(current);
     return result;
+  }
+  function buildFileEditLines(hIdx) {
+    const h = histories[hIdx];
+    if (!h?.fileEdits || h.fileEdits.length === 0) {
+      fileEditContentLines = [];
+      return;
+    }
+    fileEditContentLines = h.fileEdits.map((edit) => {
+      const lines = [];
+      if (edit.tool === "Edit") {
+        (edit.before ?? "").split("\n").forEach((l) => lines.push(`\x1B[31m- ${l}\x1B[0m`));
+        (edit.after ?? "").split("\n").forEach((l) => lines.push(`\x1B[32m+ ${l}\x1B[0m`));
+      } else if (edit.tool === "Write") {
+        if (edit.historyRef && fs5.existsSync(edit.historyRef)) {
+          fs5.readFileSync(edit.historyRef, "utf-8").split("\n").forEach((l) => lines.push(`\x1B[32m+ ${l}\x1B[0m`));
+        } else {
+          lines.push("  (file-history \uCC38\uC870\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4)");
+        }
+      }
+      return lines;
+    });
   }
   function buildContentLines(cols) {
     const innerCols = cols - 2;
@@ -737,13 +777,36 @@ function cmdView() {
       }
     }
   }
+  function renderFileEdits(contentHeight, cols) {
+    const h = histories[historyIdx];
+    const edits = h?.fileEdits ?? [];
+    if (edits.length === 0) {
+      process.stdout.write("  \uC218\uC815\uB41C \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.\n");
+      for (let i = 1; i < contentHeight + 2; i++) process.stdout.write("\n");
+      return;
+    }
+    const edit = edits[fileEditIdx];
+    const toolLabel = edit.tool === "Write" ? "\uC2E0\uADDC" : "\uC218\uC815";
+    process.stdout.write(`  ${edit.file}  \x1B[2m[${toolLabel}]\x1B[0m  (${fileEditIdx + 1} / ${edits.length})
+`);
+    process.stdout.write("\u2500".repeat(cols) + "\n");
+    const lines = fileEditContentLines[fileEditIdx] ?? [];
+    const maxScroll = Math.max(0, lines.length - contentHeight);
+    if (fileEditScrollOffset > maxScroll) fileEditScrollOffset = maxScroll;
+    const visible = lines.slice(fileEditScrollOffset, fileEditScrollOffset + contentHeight);
+    visible.forEach((line) => process.stdout.write(line + "\n"));
+    for (let i = visible.length; i < contentHeight; i++) process.stdout.write("\n");
+  }
   function renderContent(contentHeight, cols) {
     const content = contentList[contentListIdx];
     process.stdout.write(`  ${content}  (${contentListIdx + 1} / ${contentList.length})
 `);
-    process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]
-`);
     process.stdout.write("\u2500".repeat(cols) + "\n");
+    const currentHistory = histories[historyIdx];
+    const hasFileEdits = currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
+    const fileEditsHint = hasFileEdits ? `  \x1B[33m[\uC218\uC815\uD30C\uC77C ${currentHistory.fileEdits?.length ?? 0}\uAC74 \xB7 f]\x1B[0m` : "";
+    process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]${fileEditsHint}
+`);
     const history = contentLines[historyIdx];
     const maxScroll = Math.max(0, history.length - contentHeight);
     if (scrollOffset > maxScroll) scrollOffset = maxScroll;
@@ -768,11 +831,15 @@ function cmdView() {
       if (deepCursor === 1) {
         renderContentList(rows - 5, cols);
       } else {
-        renderContent(rows - 7, cols);
+        if (showingFileEdits) {
+          renderFileEdits(rows - 6, cols);
+        } else {
+          renderContent(rows - 7, cols);
+        }
       }
     }
     process.stdout.write("\u2500".repeat(cols) + "\n");
-    const hint = `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9 (history\uB294 \u25C0 \u25B6 \uB85C \uC774\uB3D9)  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
+    const hint = deepCursor === 2 ? showingFileEdits ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
     process.stdout.write(`\x1B[2m${hint}\x1B[0m`);
   }
   function exit() {
@@ -794,6 +861,7 @@ function cmdView() {
     const ch0 = rows - 3;
     const ch1 = rows - 5;
     const ch2 = rows - 7;
+    const chFile = rows - 6;
     if (key === "q" || key === "") {
       exit();
       process.exit(0);
@@ -811,9 +879,16 @@ function cmdView() {
           render();
         }
       } else if (deepCursor === 2) {
-        if (scrollOffset > 0) {
-          scrollOffset--;
-          render();
+        if (showingFileEdits) {
+          if (fileEditScrollOffset > 0) {
+            fileEditScrollOffset--;
+            render();
+          }
+        } else {
+          if (scrollOffset > 0) {
+            scrollOffset--;
+            render();
+          }
         }
       }
     } else if (key === "\x1B[B") {
@@ -830,28 +905,63 @@ function cmdView() {
           render();
         }
       } else if (deepCursor === 2) {
-        const maxScroll = Math.max(0, contentLines[historyIdx].length - ch2);
-        if (scrollOffset < maxScroll) {
-          scrollOffset++;
-          render();
+        if (showingFileEdits) {
+          const maxScroll = Math.max(0, (fileEditContentLines[fileEditIdx]?.length ?? 0) - chFile);
+          if (fileEditScrollOffset < maxScroll) {
+            fileEditScrollOffset++;
+            render();
+          }
+        } else {
+          const maxScroll = Math.max(0, contentLines[historyIdx].length - ch2);
+          if (scrollOffset < maxScroll) {
+            scrollOffset++;
+            render();
+          }
         }
       }
     } else if (key === "\x1B[C") {
       if (deepCursor === 2) {
-        if (historyIdx < contentLines.length - 1) {
-          historyIdx++;
-          scrollOffset = 0;
-          render();
+        if (showingFileEdits) {
+          const edits = histories[historyIdx]?.fileEdits ?? [];
+          if (fileEditIdx < edits.length - 1) {
+            fileEditIdx++;
+            fileEditScrollOffset = 0;
+            render();
+          }
+        } else {
+          if (historyIdx < contentLines.length - 1) {
+            historyIdx++;
+            scrollOffset = 0;
+            render();
+          }
         }
       }
     } else if (key === "\x1B[D") {
       if (deepCursor === 2) {
-        if (historyIdx > 0) {
-          historyIdx--;
-          scrollOffset = 0;
-          render();
+        if (showingFileEdits) {
+          if (fileEditIdx > 0) {
+            fileEditIdx--;
+            fileEditScrollOffset = 0;
+            render();
+          }
+        } else {
+          if (historyIdx > 0) {
+            historyIdx--;
+            scrollOffset = 0;
+            render();
+          }
         }
       }
+    } else if (key === "f" && deepCursor === 2) {
+      if (showingFileEdits) {
+        showingFileEdits = false;
+      } else {
+        buildFileEditLines(historyIdx);
+        fileEditIdx = 0;
+        fileEditScrollOffset = 0;
+        showingFileEdits = true;
+      }
+      render();
     } else if (key === "\r" || key === "\r\n") {
       if (deepCursor === 0) {
         loadContentList();
@@ -866,7 +976,10 @@ function cmdView() {
         render();
       }
     } else if (key === "\x1B") {
-      if (deepCursor > 0) {
+      if (showingFileEdits) {
+        showingFileEdits = false;
+        render();
+      } else if (deepCursor > 0) {
         deepCursor--;
         if (deepCursor === 1) {
           historyIdx = 0;

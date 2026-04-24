@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Config, RunHistoryEntry } from './types';
+import { Config, FileEditEntry, RunHistoryEntry } from './types';
 
 export const DATA_DIR = path.join(os.homedir(), '.claude', 'daily-journal');
+export const SESSION_EDITS_DIR = path.join(os.homedir(), '.claude', 'session-edits');
 const DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, 'data');
 
 export function loadDefaultConfig(): Config {
@@ -141,6 +142,18 @@ export function recordRunHistory(entry: RunHistoryEntry): void {
     fs.writeFileSync(historyPath, JSON.stringify(history, null, 2), 'utf-8');
   } catch {
     // run-history 기록 실패는 무시
+  }
+}
+
+export function readAndClearSessionEdits(sessionId: string): FileEditEntry[] {
+  const filePath = path.join(SESSION_EDITS_DIR, `${sessionId}.json`);
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    try { fs.unlinkSync(filePath); } catch { /* 삭제 실패는 무시 */ }
+    return data.edits ?? [];
+  } catch {
+    return [];
   }
 }
 
