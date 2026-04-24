@@ -278,7 +278,7 @@ function createUserConfigIfAbsent() {
     console.log(`\u2713 \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uC0DD\uC131: ${userConfigPath}`);
     return;
   }
-  let existing = {};
+  let existing;
   try {
     existing = JSON.parse(fs2.readFileSync(userConfigPath, "utf-8"));
   } catch {
