@@ -166,12 +166,7 @@ function createUserConfigIfAbsent(): void {
   const defaultConfig = loadDefaultConfig();
 
   const userConfigTemplate: Record<string, unknown> = {
-    schedule: {
-      use: defaultConfig.schedule.use,
-      start: defaultConfig.schedule.start,
-      end: defaultConfig.schedule.end,
-      generateAt: defaultConfig.schedule.generateAt,
-    },
+    schedule: {...defaultConfig.schedule},
     summary: {
       use: defaultConfig.summary.use,
       claudeModel: defaultConfig.summary.claudeModel,
@@ -182,6 +177,7 @@ function createUserConfigIfAbsent(): void {
       claudeModel: defaultConfig.journal.claudeModel,
       output_dir: defaultConfig.journal.output_dir,
     },
+    focus: {...defaultConfig.focus},
     cleanup: defaultConfig.cleanup,
     save: defaultConfig.save,
     timeZone: defaultConfig.timeZone,
