@@ -34,37 +34,18 @@ var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 
 // src/file-edit-hook.ts
-var FILE_HISTORY_DIR = path2.join(require("os").homedir(), ".claude", "file-history");
 function readState(sessionId) {
   const filePath = path2.join(SESSION_EDITS_DIR, `${sessionId}.json`);
-  if (!fs.existsSync(filePath)) return { edits: [], lastScan: [] };
+  if (!fs.existsSync(filePath)) return { edits: [] };
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf-8"));
   } catch {
-    return { edits: [], lastScan: [] };
+    return { edits: [] };
   }
 }
 function writeState(sessionId, state) {
   fs.mkdirSync(SESSION_EDITS_DIR, { recursive: true });
   fs.writeFileSync(path2.join(SESSION_EDITS_DIR, `${sessionId}.json`), JSON.stringify(state), "utf-8");
-}
-function scanHistoryDir(sessionId) {
-  const dir = path2.join(FILE_HISTORY_DIR, sessionId);
-  if (!fs.existsSync(dir)) return [];
-  try {
-    return fs.readdirSync(dir);
-  } catch {
-    return [];
-  }
-}
-function findNewestFile(sessionId, files) {
-  if (files.length === 0) return void 0;
-  const dir = path2.join(FILE_HISTORY_DIR, sessionId);
-  try {
-    return files.map((f) => ({ name: f, mtime: fs.statSync(path2.join(dir, f)).mtimeMs })).sort((a, b) => b.mtime - a.mtime)[0].name;
-  } catch {
-    return files[files.length - 1];
-  }
 }
 function main() {
   const stdinData = fs.readFileSync(0, "utf-8");
@@ -85,15 +66,8 @@ function main() {
       before: tool_input.old_string ?? "",
       after: tool_input.new_string ?? ""
     });
-    state.lastScan = scanHistoryDir(session_id);
   } else if (tool_name === "Write") {
-    const currentScan = scanHistoryDir(session_id);
-    const prevSet = new Set(state.lastScan);
-    const newFiles = currentScan.filter((f) => !prevSet.has(f));
-    const newest = findNewestFile(session_id, newFiles);
-    const historyRef = newest ? path2.join(FILE_HISTORY_DIR, session_id, newest) : void 0;
-    state.edits.push({ tool: "Write", file: filePath, historyRef });
-    state.lastScan = currentScan;
+    state.edits.push({ tool: "Write", file: filePath });
   }
   writeState(session_id, state);
 }

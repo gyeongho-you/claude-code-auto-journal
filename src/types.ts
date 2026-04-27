@@ -82,7 +82,6 @@ export type PostToolUsePayload = {
 
 export type SessionEditsState = {
   edits: FileEditEntry[];
-  lastScan: string[];
 };
 
 //default값은 haiku
