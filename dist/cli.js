@@ -89,6 +89,7 @@ function loadConfig() {
         defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
+      focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
@@ -804,7 +805,20 @@ function cmdView() {
     process.stdout.write("\u2500".repeat(cols) + "\n");
     const currentHistory = histories[historyIdx];
     const hasFileEdits = currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
-    const fileEditsHint = hasFileEdits ? `  \x1B[33m[\uC218\uC815\uD30C\uC77C ${currentHistory.fileEdits?.length ?? 0}\uAC74 \xB7 f]\x1B[0m` : "";
+    let fileEditsHint = "";
+    if (hasFileEdits) {
+      let editCount = 0;
+      let writeCount = 0;
+      currentHistory.fileEdits?.forEach((edit) => {
+        if (edit.tool === "Write") writeCount++;
+        else editCount++;
+      });
+      const parts = [
+        editCount > 0 ? `\uC218\uC815\uD30C\uC77C ${editCount}\uAC74` : "",
+        writeCount > 0 ? `\uC0DD\uC131\uD30C\uC77C ${writeCount}\uAC74` : ""
+      ].filter(Boolean);
+      fileEditsHint = `  \x1B[33m[${parts.join(" \xB7 ")}]\x1B[0m`;
+    }
     process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]${fileEditsHint}
 `);
     const history = contentLines[historyIdx];

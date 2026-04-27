@@ -17,6 +17,10 @@ export type Config = {
     output_dir: string;
     claudeModel: ClaudeModel;
   };
+  focus: {
+    use: boolean;
+    files: string[];
+  };
   cleanup: boolean;
   save: boolean;
   timeZone: string;

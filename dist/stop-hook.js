@@ -76,6 +76,7 @@ function loadConfig() {
         defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
+      focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
@@ -282,6 +283,10 @@ function main() {
   }
   const { session_id, cwd, last_assistant_message, transcript_path } = payload;
   const config = loadConfig();
+  const projectName = extractProjectName(cwd);
+  if (config.focus && config.focus.use && !config.focus.files.includes(projectName)) {
+    return;
+  }
   if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
     readAndClearSessionEdits(session_id);
     return;
@@ -307,7 +312,6 @@ function main() {
       return;
     }
   }
-  const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
   const historyDir = path3.join(todayDir, "history");
   fs3.mkdirSync(historyDir, { recursive: true });

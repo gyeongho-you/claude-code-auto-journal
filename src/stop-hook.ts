@@ -90,6 +90,12 @@ function main(): void {
 
   const config = loadConfig();
 
+  const projectName = extractProjectName(cwd);
+
+  if(config.focus && config.focus.use && !config.focus.files.includes(projectName)) {
+     return;
+  }
+
   if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
     readAndClearSessionEdits(session_id);
     return;
@@ -124,7 +130,6 @@ function main(): void {
     }
   }
 
-  const projectName = extractProjectName(cwd);
   const todayDir = getTodayDir(config);
   const historyDir = path.join(todayDir, 'history');
   fs.mkdirSync(historyDir, { recursive: true });

@@ -76,6 +76,10 @@ dj uninstall           # 플러그인 제거 (훅, 스케줄러, CLI 삭제)
     "stylePrompt": "각 프로젝트별로 마크다운 형식으로 작성",
     "output_dir": ""
   },
+  "focus": {
+    "use": false,
+    "files": ["my-project", "another-project"]
+  },
   "cleanup": false,
   "save": true,
   "timeZone": "Asia/Seoul"
@@ -172,6 +176,8 @@ Claude 세션이 끝날 때 마지막 응답을 요약할 때 사용됩니다.
 | `journal.claudeModel` | `"haiku"` | 일지 생성에 사용할 모델. `"haiku"` / `"sonnet"` / `"opus"` 중 선택. 알 수 없는 값이면 `"haiku"`로 폴백                                                           |
 | `journal.stylePrompt` | 참고 | 일지 생성 시 출력 스타일 지정 (형식, 구조 등)                                                                                                              |
 | `journal.output_dir` | `""` | 일지 저장 경로. 비워두면 `~/.claude/daily-journal/data` 사용                                                                                          |
+| `focus.use` | `false` | `true`로 설정하면 `focus.files`에 지정된 프로젝트의 대화만 기록. 나머지 프로젝트는 스킵 |
+| `focus.files` | `[]` | 기록할 프로젝트 이름 목록. `focus.use: true`일 때만 적용. 프로젝트 이름은 작업 디렉토리의 마지막 폴더명 기준 (예: `/Users/me/projects/my-app` → `"my-app"`) |
 | `cleanup` | `false` | 일지 생성 후 히스토리 파일 삭제 여부. `true`로 설정하면 `.jsonl` 파일 삭제 (당일 생성된 history는 삭제 안 됨)                                                               |
 | `save` | `true` | 대화 내용 저장 여부. `false`로 설정하면 stop-hook이 아무것도 기록하지 않음                                                                                        |
 | `timeZone` | `"Asia/Seoul"` | 날짜/시간 기준 타임존. [IANA 타임존](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) 형식 사용 (예: `"America/New_York"`). 유효하지 않으면 기본값으로 폴백 |

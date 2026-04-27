@@ -229,7 +229,24 @@ export function cmdView(): void {
 
     const currentHistory = histories[historyIdx];
     const hasFileEdits = currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
-    const fileEditsHint = hasFileEdits ? `  \x1b[33m[수정파일 ${currentHistory.fileEdits?.length ?? 0}건 · f]\x1b[0m` : '';
+
+    let fileEditsHint = '';
+
+    if(hasFileEdits){
+      let editCount = 0;
+      let writeCount = 0;
+
+      currentHistory.fileEdits?.forEach(edit => {
+        if(edit.tool === 'Write') writeCount++;
+        else editCount++;
+      })
+
+      const parts = [
+        editCount > 0 ? `수정파일 ${editCount}건` : '',
+        writeCount > 0 ? `생성파일 ${writeCount}건` : '',
+      ].filter(Boolean);
+      fileEditsHint = `  \x1b[33m[${parts.join(' · ')}]\x1b[0m`;
+    }
     process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]${fileEditsHint}\n`);
 
     const history = contentLines[historyIdx];

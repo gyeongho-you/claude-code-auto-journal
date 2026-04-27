@@ -17,6 +17,10 @@
     "stylePrompt": "각 프로젝트별로 마크다운 형식. 프로젝트마다 ## 프로젝트명, 구현 주제마다 ### 제목, 1~2줄 요약, 세부 항목 순서로 모든 프로젝트를 빠짐없이 작성.",
     "output_dir": ""
   },
+  "focus" : {
+    "use": false,
+    "files" : []
+  },
   "cleanup": false,
   "save": true,
   "timeZone": "Asia/Seoul"
