@@ -12,23 +12,48 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 2.5);
 }
 
+function extractJsonObjects(content: string): HistoryEntry[] {
+  const results: HistoryEntry[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let start = -1;
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (escaped) { escaped = false; continue; }
+    if (inString) {
+      if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try {
+          results.push(JSON.parse(content.slice(start, i + 1)) as HistoryEntry);
+        } catch (e) {
+          logError("손상된 history entry 스킵: " + content.slice(start, Math.min(start + 80, i + 1)));
+        }
+        start = -1;
+      }
+    }
+  }
+  return results;
+}
+
 function loadHistoryByProject(historyDir: string): Record<string, HistoryEntry[]> {
   const result: Record<string, HistoryEntry[]> = {};
   const files = fs.readdirSync(historyDir).filter(f => f.endsWith('.jsonl'));
 
   for (const file of files) {
-      const project = file.replace('.jsonl', '');
-      const lines = fs.readFileSync(path.join(historyDir, file), 'utf-8')
-          .trim().split('\n').filter(Boolean);
-      result[project] = lines.flatMap(l => {
-        try {
-          return [JSON.parse(l) as HistoryEntry];
-        } catch (e) {
-          logError("일지 작성중 손상된 history Skip: " + l);
-          console.error("일지 작성중 손상된 history 존재", e);
-          return [];
-        }
-      });
+    const project = file.replace('.jsonl', '');
+    const content = fs.readFileSync(path.join(historyDir, file), 'utf-8');
+    result[project] = extractJsonObjects(content);
   }
   return result;
 }
@@ -105,6 +130,10 @@ function summarizeChunk(chunkData: string, chunkIndex: number, totalChunks: numb
   return output;
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function formatDiffSection(showOutput: string): string {
   const parts = showOutput.split(/^diff --git /m);
   const fileSections = parts.slice(1); // 커밋 헤더(author, date 등) 제외
@@ -118,7 +147,14 @@ function formatDiffSection(showOutput: string): string {
     const diffStartIdx = lines.findIndex(l => l.startsWith('@@'));
     const diffLines = diffStartIdx !== -1 ? lines.slice(diffStartIdx) : lines.slice(1);
 
-    return `-${filename}-\n\n\`\`\`diff\n${diffLines.join('\n').trimEnd()}\n\`\`\``;
+    const colored = diffLines.map(l => {
+      if (l.startsWith('+') && !l.startsWith('+++')) return `<span style="color:#22c55e">${escapeHtml(l)}</span>`;
+      if (l.startsWith('-') && !l.startsWith('---')) return `<span style="color:#ef4444">${escapeHtml(l)}</span>`;
+      if (l.startsWith('@@')) return `<span style="color:#60a5fa">${escapeHtml(l.replace(/^(@@ .+? @@).*$/, '$1'))}</span>`;
+      return escapeHtml(l);
+    });
+
+    return `-${filename}-\n\n<pre>${colored.join('\n')}</pre>`;
   }).join('\n\n---\n\n');
 }
 
@@ -156,7 +192,7 @@ function postProcessCommitDiffs(journalPath: string, historyDir: string): void {
         maxBuffer: 10 * 1024 * 1024,
       });
       const formatted = formatDiffSection(showOutput);
-      return `<details>\n<summary>${hash}</summary>\n\n${formatted}\n\n</details>`;
+      return `\n<details>\n<summary>${hash}</summary>\n\n${formatted}\n\n</details>`;
     } catch {
       return hash;
     }

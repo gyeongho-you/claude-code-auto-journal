@@ -203,18 +203,41 @@ export function cmdView(): void {
     });
   }
 
+  function extractJsonObjects(content: string): HistoryEntry[] {
+    const results: HistoryEntry[] = [];
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let start = -1;
+
+    for (let i = 0; i < content.length; i++) {
+      const ch = content[i];
+      if (escaped) { escaped = false; continue; }
+      if (inString) {
+        if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{') {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          try { results.push(JSON.parse(content.slice(start, i + 1)) as HistoryEntry); } catch { /* skip */ }
+          start = -1;
+        }
+      }
+    }
+    return results;
+  }
+
   function loadContent() {
     const contentPath = path.join(outputDir, dates[dateIdx], 'history', contentList[contentListIdx]);
     try {
-      const lines = fs.readFileSync(contentPath, 'utf-8').split('\n');
-      histories = lines.flatMap(l => {
-        try {
-          return [JSON.parse(l) as HistoryEntry];
-        } catch (e) {
-          logError("일지 작성중 손상된 history Skip: " + l);
-          return [];
-        }
-      });
+      const content = fs.readFileSync(contentPath, 'utf-8');
+      histories = extractJsonObjects(content);
       buildContentLines(getTermSize().cols);
     } catch { /* ignore */ }
   }

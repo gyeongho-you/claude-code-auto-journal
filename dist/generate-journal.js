@@ -193,21 +193,51 @@ var MAX_DATA_TOKENS = 14e4;
 function estimateTokens(text) {
   return Math.ceil(text.length / 2.5);
 }
+function extractJsonObjects(content) {
+  const results = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let start = -1;
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try {
+          results.push(JSON.parse(content.slice(start, i + 1)));
+        } catch (e) {
+          logError("\uC190\uC0C1\uB41C history entry \uC2A4\uD0B5: " + content.slice(start, Math.min(start + 80, i + 1)));
+        }
+        start = -1;
+      }
+    }
+  }
+  return results;
+}
 function loadHistoryByProject(historyDir) {
   const result = {};
   const files = fs3.readdirSync(historyDir).filter((f) => f.endsWith(".jsonl"));
   for (const file of files) {
     const project = file.replace(".jsonl", "");
-    const lines = fs3.readFileSync(path3.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
-    result[project] = lines.flatMap((l) => {
-      try {
-        return [JSON.parse(l)];
-      } catch (e) {
-        logError("\uC77C\uC9C0 \uC791\uC131\uC911 \uC190\uC0C1\uB41C history Skip: " + l);
-        console.error("\uC77C\uC9C0 \uC791\uC131\uC911 \uC190\uC0C1\uB41C history \uC874\uC7AC", e);
-        return [];
-      }
-    });
+    const content = fs3.readFileSync(path3.join(historyDir, file), "utf-8");
+    result[project] = extractJsonObjects(content);
   }
   return result;
 }
@@ -279,6 +309,9 @@ ${chunkData}`;
   if (!output) throw new Error("\uCCAD\uD06C \uC751\uB2F5 \uC5C6\uC74C");
   return output;
 }
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 function formatDiffSection(showOutput) {
   const parts = showOutput.split(/^diff --git /m);
   const fileSections = parts.slice(1);
@@ -289,11 +322,15 @@ function formatDiffSection(showOutput) {
     const filename = fileMatch ? fileMatch[1] : lines[0];
     const diffStartIdx = lines.findIndex((l) => l.startsWith("@@"));
     const diffLines = diffStartIdx !== -1 ? lines.slice(diffStartIdx) : lines.slice(1);
+    const colored = diffLines.map((l) => {
+      if (l.startsWith("+") && !l.startsWith("+++")) return `<span style="color:#22c55e">${escapeHtml(l)}</span>`;
+      if (l.startsWith("-") && !l.startsWith("---")) return `<span style="color:#ef4444">${escapeHtml(l)}</span>`;
+      if (l.startsWith("@@")) return `<span style="color:#60a5fa">${escapeHtml(l.replace(/^(@@ .+? @@).*$/, "$1"))}</span>`;
+      return escapeHtml(l);
+    });
     return `-${filename}-
 
-\`\`\`diff
-${diffLines.join("\n").trimEnd()}
-\`\`\``;
+<pre>${colored.join("\n")}</pre>`;
   }).join("\n\n---\n\n");
 }
 function postProcessCommitDiffs(journalPath, historyDir) {
@@ -331,12 +368,12 @@ function postProcessCommitDiffs(journalPath, historyDir) {
         maxBuffer: 10 * 1024 * 1024
       });
       const formatted = formatDiffSection(showOutput);
-      return `<details>
+      return `**<details>
 <summary>${hash}</summary>
 
 ${formatted}
 
-</details>`;
+**</details>`;
     } catch {
       return hash;
     }
