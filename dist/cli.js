@@ -776,6 +776,8 @@ function cmdView() {
   let fileEditIdx = 0;
   let fileEditScrollOffset = 0;
   let fileEditContentLines = [];
+  let gitCommitFileNames = [];
+  let gitShowRawSections = [];
   function getTermSize() {
     return {
       rows: process.stdout.rows || 24,
@@ -820,20 +822,50 @@ function cmdView() {
     if (current) result.push(current);
     return result;
   }
+  function formatGitCommitSections(cols) {
+    fileEditContentLines = gitShowRawSections.map((section) => {
+      const lines = section.split("\n");
+      return lines.slice(1).flatMap((l) => {
+        if (l.startsWith("+++") || l.startsWith("---")) return wrapLine(l, cols).map((w) => `\x1B[2m${w}\x1B[0m`);
+        if (l.startsWith("+")) return wrapLine(l, cols).map((w) => `\x1B[32m${w}\x1B[0m`);
+        if (l.startsWith("-")) return wrapLine(l, cols).map((w) => `\x1B[31m${w}\x1B[0m`);
+        if (l.startsWith("@@")) {
+          const trimmed = l.replace(/^(@@ .+? @@).*$/, "$1");
+          return [``, `\x1B[36m  ${trimmed}\x1B[0m`];
+        }
+        return wrapLine(`  ${l}`, cols);
+      });
+    });
+  }
   function buildFileEditLines(hIdx) {
     const h = histories[hIdx];
     if (h?.source === "git-commit") {
       const hash = h.answer || "";
+      gitCommitFileNames = [];
+      gitShowRawSections = [];
       if (!hash) {
-        fileEditContentLines = [["  (\uCEE4\uBC0B \uD574\uC2DC \uC5C6\uC74C)"]];
+        fileEditContentLines = [];
         return;
       }
       try {
         const cmd = h.repoPath ? `git -C "${h.repoPath}" show ${hash}` : `git show ${hash}`;
         const output = (0, import_child_process4.execSync)(cmd, { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
-        fileEditContentLines = [output.split("\n").map((l) => `  ${l}`)];
+        const parts = output.split(/^diff --git /m);
+        const fileSections = parts.slice(1);
+        if (fileSections.length === 0) {
+          fileEditContentLines = [[`  (\uBCC0\uACBD \uD30C\uC77C \uC5C6\uC74C)`]];
+          gitCommitFileNames = ["(no diff)"];
+          return;
+        }
+        gitShowRawSections = fileSections;
+        gitCommitFileNames = fileSections.map((section) => {
+          const fileMatch = section.split("\n")[0].match(/ b\/(.+)$/);
+          return fileMatch ? fileMatch[1] : section.split("\n")[0];
+        });
+        formatGitCommitSections(getTermSize().cols);
       } catch {
-        fileEditContentLines = [[`  git show ${hash} \uC2E4\uD589 \uC2E4\uD328 (\uC800\uC7A5\uC18C\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC74C)`]];
+        fileEditContentLines = [[`  git show ${hash} \uC2E4\uD589 \uC2E4\uD328`]];
+        gitCommitFileNames = ["\uC624\uB958"];
       }
       return;
     }
@@ -931,8 +963,13 @@ function cmdView() {
   function renderFileEdits(contentHeight, cols) {
     const h = histories[historyIdx];
     if (h?.source === "git-commit") {
-      const hash = h?.answer || "";
-      process.stdout.write(`  git show \x1B[1;33m${hash}\x1B[0m
+      if (fileEditContentLines.length === 0) {
+        process.stdout.write("  (diff\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4)\n");
+        for (let i = 1; i < contentHeight + 2; i++) process.stdout.write("\n");
+        return;
+      }
+      const filename = gitCommitFileNames[fileEditIdx] || "";
+      process.stdout.write(`  ${filename}  \x1B[2m[${h?.answer || ""}]\x1B[0m  (${fileEditIdx + 1} / ${fileEditContentLines.length})
 `);
       process.stdout.write("\u2500".repeat(cols) + "\n");
     } else {
@@ -1027,7 +1064,9 @@ function cmdView() {
   process.stdin.resume();
   process.stdin.setEncoding("utf-8");
   process.stdout.on("resize", () => {
-    if (deepCursor === 2) buildContentLines(getTermSize().cols);
+    const { cols } = getTermSize();
+    if (deepCursor === 2) buildContentLines(cols);
+    if (showingFileEdits && gitShowRawSections.length > 0) formatGitCommitSections(cols);
     render();
   });
   process.stdin.on("data", (key) => {
@@ -1096,8 +1135,7 @@ function cmdView() {
     } else if (key === "\x1B[C") {
       if (deepCursor === 2) {
         if (showingFileEdits) {
-          const edits = histories[historyIdx]?.fileEdits ?? [];
-          if (fileEditIdx < edits.length - 1) {
+          if (fileEditIdx < fileEditContentLines.length - 1) {
             fileEditIdx++;
             fileEditScrollOffset = 0;
             render();

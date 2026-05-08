@@ -45,6 +45,8 @@ export function cmdView(): void {
   let fileEditIdx = 0;
   let fileEditScrollOffset = 0;
   let fileEditContentLines: string[][] = [];
+  let gitCommitFileNames: string[] = [];
+  let gitShowRawSections: string[] = [];
 
   function getTermSize() {
     return {
@@ -104,23 +106,51 @@ export function cmdView(): void {
     return result;
   }
 
+  function formatGitCommitSections(cols: number): void {
+    fileEditContentLines = gitShowRawSections.map(section => {
+      const lines = section.split('\n');
+      return lines.slice(1).flatMap(l => {
+        if (l.startsWith('+++') || l.startsWith('---')) return wrapLine(l, cols).map(w => `\x1b[2m${w}\x1b[0m`);
+        if (l.startsWith('+')) return wrapLine(l, cols).map(w => `\x1b[32m${w}\x1b[0m`);
+        if (l.startsWith('-')) return wrapLine(l, cols).map(w => `\x1b[31m${w}\x1b[0m`);
+        if (l.startsWith('@@')) {
+          const trimmed = l.replace(/^(@@ .+? @@).*$/, '$1');
+          return [``, `\x1b[36m  ${trimmed}\x1b[0m`];
+        }
+        return wrapLine(`  ${l}`, cols);
+      });
+    });
+  }
+
   function buildFileEditLines(hIdx: number): void {
     const h = histories[hIdx];
 
     if (h?.source === 'git-commit') {
       const hash = h.answer || '';
-      if (!hash) {
-        fileEditContentLines = [['  (커밋 해시 없음)']];
-        return;
-      }
+      gitCommitFileNames = [];
+      gitShowRawSections = [];
+      if (!hash) { fileEditContentLines = []; return; }
       try {
         const cmd = h.repoPath
           ? `git -C "${h.repoPath}" show ${hash}`
           : `git show ${hash}`;
         const output = execSync(cmd, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
-        fileEditContentLines = [output.split('\n').map(l => `  ${l}`)];
+        const parts = output.split(/^diff --git /m);
+        const fileSections = parts.slice(1);
+        if (fileSections.length === 0) {
+          fileEditContentLines = [[`  (변경 파일 없음)`]];
+          gitCommitFileNames = ['(no diff)'];
+          return;
+        }
+        gitShowRawSections = fileSections;
+        gitCommitFileNames = fileSections.map(section => {
+          const fileMatch = section.split('\n')[0].match(/ b\/(.+)$/);
+          return fileMatch ? fileMatch[1] : section.split('\n')[0];
+        });
+        formatGitCommitSections(getTermSize().cols);
       } catch {
-        fileEditContentLines = [[`  git show ${hash} 실행 실패 (저장소를 찾을 수 없음)`]];
+        fileEditContentLines = [[`  git show ${hash} 실행 실패`]];
+        gitCommitFileNames = ['오류'];
       }
       return;
     }
@@ -228,8 +258,13 @@ export function cmdView(): void {
     const h = histories[historyIdx];
 
     if (h?.source === 'git-commit') {
-      const hash = h?.answer || '';
-      process.stdout.write(`  git show \x1b[1;33m${hash}\x1b[0m\n`);
+      if (fileEditContentLines.length === 0) {
+        process.stdout.write('  (diff를 불러올 수 없습니다)\n');
+        for (let i = 1; i < contentHeight + 2; i++) process.stdout.write('\n');
+        return;
+      }
+      const filename = gitCommitFileNames[fileEditIdx] || '';
+      process.stdout.write(`  ${filename}  \x1b[2m[${h?.answer || ''}]\x1b[0m  (${fileEditIdx + 1} / ${fileEditContentLines.length})\n`);
       process.stdout.write('─'.repeat(cols) + '\n');
     } else {
       const edits = h?.fileEdits ?? [];
@@ -349,7 +384,9 @@ export function cmdView(): void {
 
   // 터미널 크기 변경 시 캐시 재빌드 후 렌더링
   process.stdout.on('resize', () => {
-    if (deepCursor === 2) buildContentLines(getTermSize().cols);
+    const { cols } = getTermSize();
+    if (deepCursor === 2) buildContentLines(cols);
+    if (showingFileEdits && gitShowRawSections.length > 0) formatGitCommitSections(cols);
     render();
   });
 
@@ -410,8 +447,7 @@ export function cmdView(): void {
     } else if (key === '\x1b[C') { // 오른쪽
       if (deepCursor === 2) {
         if (showingFileEdits) {
-          const edits = histories[historyIdx]?.fileEdits ?? [];
-          if (fileEditIdx < edits.length - 1) { fileEditIdx++; fileEditScrollOffset = 0; render(); }
+          if (fileEditIdx < fileEditContentLines.length - 1) { fileEditIdx++; fileEditScrollOffset = 0; render(); }
         } else {
           if (historyIdx < contentLines.length - 1) { historyIdx++; scrollOffset = 0; render(); }
         }
