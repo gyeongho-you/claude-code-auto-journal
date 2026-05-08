@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import {loadConfig, logError} from './config';
 import {HistoryEntry, RunHistoryEntry} from "./types";
 import {RUN_HISTORY_PATH} from "./cli";
@@ -107,8 +108,20 @@ export function cmdView(): void {
     const h = histories[hIdx];
 
     if (h?.source === 'git-commit') {
-      if (!h.answer) { fileEditContentLines = []; return; }
-      fileEditContentLines = [h.answer.split('\n').map(l => `  ${l}`)];
+      const hash = h.answer || '';
+      if (!hash) {
+        fileEditContentLines = [['  (커밋 해시 없음)']];
+        return;
+      }
+      try {
+        const cmd = h.repoPath
+          ? `git -C "${h.repoPath}" show ${hash}`
+          : `git show ${hash}`;
+        const output = execSync(cmd, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+        fileEditContentLines = [output.split('\n').map(l => `  ${l}`)];
+      } catch {
+        fileEditContentLines = [[`  git show ${hash} 실행 실패 (저장소를 찾을 수 없음)`]];
+      }
       return;
     }
 
@@ -215,7 +228,8 @@ export function cmdView(): void {
     const h = histories[historyIdx];
 
     if (h?.source === 'git-commit') {
-      process.stdout.write(`  커밋 변경사항  \x1b[2m[diff --stat]\x1b[0m\n`);
+      const hash = h?.answer || '';
+      process.stdout.write(`  git show \x1b[1;33m${hash}\x1b[0m\n`);
       process.stdout.write('─'.repeat(cols) + '\n');
     } else {
       const edits = h?.fileEdits ?? [];
@@ -251,7 +265,7 @@ export function cmdView(): void {
     let fileEditsHint = '';
 
     if (isGitCommit && currentHistory.answer) {
-      fileEditsHint = `  \x1b[33m[변경사항 diff]\x1b[0m`;
+      fileEditsHint = `  \x1b[33m[커밋 해시]\x1b[0m`;
     } else if (hasFileEdits) {
       let editCount = 0;
       let writeCount = 0;

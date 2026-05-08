@@ -54,6 +54,7 @@ export type HistoryEntry = {
   answer: string;
   fileEdits?: FileEditEntry[];
   source?: 'conversation' | 'git-commit';
+  repoPath?: string;
 };
 
 export type GitHookEntry = {

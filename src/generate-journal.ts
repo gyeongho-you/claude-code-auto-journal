@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { loadConfig, logError, recordRunHistory, getDateString } from './config';
 import {ClaudeModel, Config, HistoryEntry} from './types';
 import {callClaude} from "./claude";
@@ -55,7 +56,8 @@ function buildPromptData(historyByProject: Record<string, HistoryEntry[]>): stri
           const duration = calcDuration(e.time, entries[i + 1]?.time);
           const durationLabel = duration ? ` ${duration}` : '';
           if (e.source === 'git-commit') {
-            return `---\n[커밋${durationLabel}] ${e.prompt}\n${e.answer}`;
+            const hashRef = e.answer ? ` @#$(${e.answer})#@$` : '';
+            return `---\n[커밋${durationLabel}] ${e.prompt}${hashRef}`;
           }
           return `---\n[작업${durationLabel}] ${e.prompt}\n${e.summary ? '[요약]' + e.summary.replace(/\n/g, ' ') : '[정리필요]' + e.answer.replace(/\n/g, ' ')}`;
         })
@@ -103,6 +105,69 @@ function summarizeChunk(chunkData: string, chunkIndex: number, totalChunks: numb
   return output;
 }
 
+function formatDiffSection(showOutput: string): string {
+  const parts = showOutput.split(/^diff --git /m);
+  const fileSections = parts.slice(1); // 커밋 헤더(author, date 등) 제외
+  if (fileSections.length === 0) return showOutput;
+
+  return fileSections.map(section => {
+    const lines = section.split('\n');
+    const fileMatch = lines[0].match(/ b\/(.+)$/);
+    const filename = fileMatch ? fileMatch[1] : lines[0];
+
+    const diffStartIdx = lines.findIndex(l => l.startsWith('@@'));
+    const diffLines = diffStartIdx !== -1 ? lines.slice(diffStartIdx) : lines.slice(1);
+
+    return `-${filename}-\n\n\`\`\`diff\n${diffLines.join('\n').trimEnd()}\n\`\`\``;
+  }).join('\n\n---\n\n');
+}
+
+function postProcessCommitDiffs(journalPath: string, historyDir: string): void {
+  let content: string;
+  try {
+    content = fs.readFileSync(journalPath, 'utf-8');
+  } catch { return; }
+
+  if (!content.includes('@#$(')) return;
+
+  const hashToRepo: Record<string, string> = {};
+  try {
+    const files = fs.readdirSync(historyDir).filter(f => f.endsWith('.jsonl'));
+    for (const file of files) {
+      const lines = fs.readFileSync(path.join(historyDir, file), 'utf-8').trim().split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line) as HistoryEntry;
+          if (entry.source === 'git-commit' && entry.answer && entry.repoPath) {
+            hashToRepo[entry.answer] = entry.repoPath;
+          }
+        } catch { /* skip */ }
+      }
+    }
+  } catch { return; }
+
+  const replaced = content.replace(/@#\$\(([a-f0-9]+)\)#@\$/g, (_fullMatch, hash) => {
+    const repoPath = hashToRepo[hash];
+    if (!repoPath) return hash; // 매핑 없으면 hash만 남김
+
+    try {
+      const showOutput = execSync(`git -C "${repoPath}" show ${hash}`, {
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      const formatted = formatDiffSection(showOutput);
+      return `<details>\n<summary>${hash}</summary>\n\n${formatted}\n\n</details>`;
+    } catch {
+      return hash;
+    }
+  });
+
+  if (replaced !== content) {
+    fs.writeFileSync(journalPath, replaced, 'utf-8');
+    console.log(`  ✓ 커밋 diff 삽입 완료`);
+  }
+}
+
 function main(): void {
   const config = loadConfig();
   writeJournal(getDateString(config.timeZone), config);
@@ -144,7 +209,9 @@ function generateJournalForDate(date: string, config: Config): void {
     if (!journalContent) return;
 
     fs.mkdirSync(dateDir, { recursive: true });
-    fs.writeFileSync(path.join(dateDir, 'journal.md'), journalContent, 'utf-8');
+    const journalPath = path.join(dateDir, 'journal.md');
+    fs.writeFileSync(journalPath, journalContent, 'utf-8');
+    postProcessCommitDiffs(journalPath, historyDir);
 
     recordRunHistory({ date, status: 'success', timestamp });
     console.log(`  ✓ 완료 → ${path.join(dateDir, 'journal.md')}`);

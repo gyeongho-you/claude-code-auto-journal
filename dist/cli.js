@@ -37,7 +37,7 @@ module.exports = __toCommonJS(cli_exports);
 var fs6 = __toESM(require("fs"));
 var path6 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
-var import_child_process3 = require("child_process");
+var import_child_process5 = require("child_process");
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -163,6 +163,7 @@ function logError(message) {
 // src/generate-journal.ts
 var fs3 = __toESM(require("fs"));
 var path3 = __toESM(require("path"));
+var import_child_process2 = require("child_process");
 
 // src/claude.ts
 var import_child_process = require("child_process");
@@ -245,9 +246,9 @@ function buildPromptData(historyByProject) {
       const duration = calcDuration(e.time, entries[i + 1]?.time);
       const durationLabel = duration ? ` ${duration}` : "";
       if (e.source === "git-commit") {
+        const hashRef = e.answer ? ` @#$(${e.answer})#@$` : "";
         return `---
-[\uCEE4\uBC0B${durationLabel}] ${e.prompt}
-${e.answer}`;
+[\uCEE4\uBC0B${durationLabel}] ${e.prompt}${hashRef}`;
       }
       return `---
 [\uC791\uC5C5${durationLabel}] ${e.prompt}
@@ -293,6 +294,73 @@ ${chunkData}`;
   if (!output) throw new Error("\uCCAD\uD06C \uC751\uB2F5 \uC5C6\uC74C");
   return output;
 }
+function formatDiffSection(showOutput) {
+  const parts = showOutput.split(/^diff --git /m);
+  const fileSections = parts.slice(1);
+  if (fileSections.length === 0) return showOutput;
+  return fileSections.map((section) => {
+    const lines = section.split("\n");
+    const fileMatch = lines[0].match(/ b\/(.+)$/);
+    const filename = fileMatch ? fileMatch[1] : lines[0];
+    const diffStartIdx = lines.findIndex((l) => l.startsWith("@@"));
+    const diffLines = diffStartIdx !== -1 ? lines.slice(diffStartIdx) : lines.slice(1);
+    return `-${filename}-
+
+\`\`\`diff
+${diffLines.join("\n").trimEnd()}
+\`\`\``;
+  }).join("\n\n---\n\n");
+}
+function postProcessCommitDiffs(journalPath, historyDir) {
+  let content;
+  try {
+    content = fs3.readFileSync(journalPath, "utf-8");
+  } catch {
+    return;
+  }
+  if (!content.includes("@#$(")) return;
+  const hashToRepo = {};
+  try {
+    const files = fs3.readdirSync(historyDir).filter((f) => f.endsWith(".jsonl"));
+    for (const file of files) {
+      const lines = fs3.readFileSync(path3.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.source === "git-commit" && entry.answer && entry.repoPath) {
+            hashToRepo[entry.answer] = entry.repoPath;
+          }
+        } catch {
+        }
+      }
+    }
+  } catch {
+    return;
+  }
+  const replaced = content.replace(/@#\$\(([a-f0-9]+)\)#@\$/g, (_fullMatch, hash) => {
+    const repoPath = hashToRepo[hash];
+    if (!repoPath) return hash;
+    try {
+      const showOutput = (0, import_child_process2.execSync)(`git -C "${repoPath}" show ${hash}`, {
+        encoding: "utf-8",
+        maxBuffer: 10 * 1024 * 1024
+      });
+      const formatted = formatDiffSection(showOutput);
+      return `<details>
+<summary>${hash}</summary>
+
+${formatted}
+
+</details>`;
+    } catch {
+      return hash;
+    }
+  });
+  if (replaced !== content) {
+    fs3.writeFileSync(journalPath, replaced, "utf-8");
+    console.log(`  \u2713 \uCEE4\uBC0B diff \uC0BD\uC785 \uC644\uB8CC`);
+  }
+}
 function main() {
   const config = loadConfig();
   writeJournal(getDateString(config.timeZone), config);
@@ -322,7 +390,9 @@ function generateJournalForDate(date, config) {
     const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
     if (!journalContent) return;
     fs3.mkdirSync(dateDir, { recursive: true });
-    fs3.writeFileSync(path3.join(dateDir, "journal.md"), journalContent, "utf-8");
+    const journalPath = path3.join(dateDir, "journal.md");
+    fs3.writeFileSync(journalPath, journalContent, "utf-8");
+    postProcessCommitDiffs(journalPath, historyDir);
     recordRunHistory({ date, status: "success", timestamp });
     console.log(`  \u2713 \uC644\uB8CC \u2192 ${path3.join(dateDir, "journal.md")}`);
   } else {
@@ -405,7 +475,7 @@ if (isDirectRun) {
 var fs4 = __toESM(require("fs"));
 var os3 = __toESM(require("os"));
 var path4 = __toESM(require("path"));
-var import_child_process2 = require("child_process");
+var import_child_process3 = require("child_process");
 var HOME = os3.homedir();
 var CLAUDE_DIR = path4.join(HOME, ".claude");
 var SETTINGS_PATH = path4.join(CLAUDE_DIR, "settings.json");
@@ -459,24 +529,24 @@ function registerTaskScheduler(generateTime) {
 function unregisterTaskScheduler() {
   if (process.platform === "win32") {
     try {
-      (0, import_child_process2.execSync)(`schtasks /delete /tn "DailyJournalPlugin" /f`, { stdio: "ignore" });
+      (0, import_child_process3.execSync)(`schtasks /delete /tn "DailyJournalPlugin" /f`, { stdio: "ignore" });
     } catch {
     }
   } else {
     let currentCrontab = "";
     try {
-      currentCrontab = (0, import_child_process2.execSync)("crontab -l", { encoding: "utf-8" });
+      currentCrontab = (0, import_child_process3.execSync)("crontab -l", { encoding: "utf-8" });
     } catch {
     }
     const filtered = currentCrontab.split("\n").filter((l) => !l.includes("daily-journal-plugin")).filter(Boolean);
     if (filtered.length > 0) {
       const tmpFile = path4.join(os3.tmpdir(), "daily-journal-crontab.tmp");
       fs4.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
-      (0, import_child_process2.execSync)(`crontab "${tmpFile}"`);
+      (0, import_child_process3.execSync)(`crontab "${tmpFile}"`);
       fs4.unlinkSync(tmpFile);
     } else {
       try {
-        (0, import_child_process2.execSync)("crontab -r", { stdio: "ignore" });
+        (0, import_child_process3.execSync)("crontab -r", { stdio: "ignore" });
       } catch {
       }
     }
@@ -497,10 +567,10 @@ function registerWindowsScheduler(endTime) {
     `/f`
   ].join(" ");
   try {
-    (0, import_child_process2.execSync)(deleteCmd, { stdio: "ignore" });
+    (0, import_child_process3.execSync)(deleteCmd, { stdio: "ignore" });
   } catch {
   }
-  (0, import_child_process2.execSync)(createCmd, { stdio: "inherit" });
+  (0, import_child_process3.execSync)(createCmd, { stdio: "inherit" });
   console.log(`\u2713 Task Scheduler \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
 }
 function registerCronJob(generateTime) {
@@ -509,14 +579,14 @@ function registerCronJob(generateTime) {
   const cronLine = `${minute} ${hour} * * * node "${generateScript}" # daily-journal-plugin`;
   let currentCrontab = "";
   try {
-    currentCrontab = (0, import_child_process2.execSync)("crontab -l", { encoding: "utf-8" });
+    currentCrontab = (0, import_child_process3.execSync)("crontab -l", { encoding: "utf-8" });
   } catch {
   }
   const filtered = currentCrontab.split("\n").filter((l) => !l.includes("daily-journal-plugin")).filter(Boolean);
   filtered.push(cronLine);
   const tmpFile = path4.join(os3.tmpdir(), "daily-journal-crontab.tmp");
   fs4.writeFileSync(tmpFile, filtered.join("\n") + "\n", "utf-8");
-  (0, import_child_process2.execSync)(`crontab "${tmpFile}"`);
+  (0, import_child_process3.execSync)(`crontab "${tmpFile}"`);
   fs4.unlinkSync(tmpFile);
   console.log(`\u2713 cron \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${generateTime})`);
 }
@@ -585,7 +655,7 @@ function setup() {
     unregisterTaskScheduler();
   }
   try {
-    (0, import_child_process2.execSync)("npm link", { cwd: PLUGIN_DIR, stdio: "ignore" });
+    (0, import_child_process3.execSync)("npm link", { cwd: PLUGIN_DIR, stdio: "ignore" });
     console.log("\u2713 CLI \uC804\uC5ED \uB4F1\uB85D \uC644\uB8CC (dj \uBA85\uB839\uC5B4 \uC0AC\uC6A9 \uAC00\uB2A5)");
   } catch {
     console.warn("\u26A0 CLI \uC804\uC5ED \uB4F1\uB85D \uC2E4\uD328. \uC218\uB3D9\uC73C\uB85C \uB4F1\uB85D\uD558\uB824\uBA74:");
@@ -658,7 +728,7 @@ function uninstall() {
   unregisterTaskScheduler();
   removeGitHooks();
   try {
-    (0, import_child_process2.execSync)("npm unlink", { cwd: PLUGIN_DIR, stdio: "ignore" });
+    (0, import_child_process3.execSync)("npm unlink", { cwd: PLUGIN_DIR, stdio: "ignore" });
     console.log("\u2713 CLI \uC804\uC5ED \uC0AD\uC81C \uC644\uB8CC");
   } catch {
     console.warn("\u26A0 CLI \uC804\uC5ED \uC0AD\uC81C \uC2E4\uD328. \uC218\uB3D9\uC73C\uB85C \uC0AD\uC81C\uD558\uB824\uBA74:");
@@ -676,6 +746,7 @@ if (isDirectRun2) {
 // src/view.ts
 var fs5 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
+var import_child_process4 = require("child_process");
 function cmdView() {
   const config = loadConfig();
   const outputDir = config.journal.output_dir;
@@ -752,11 +823,18 @@ function cmdView() {
   function buildFileEditLines(hIdx) {
     const h = histories[hIdx];
     if (h?.source === "git-commit") {
-      if (!h.answer) {
-        fileEditContentLines = [];
+      const hash = h.answer || "";
+      if (!hash) {
+        fileEditContentLines = [["  (\uCEE4\uBC0B \uD574\uC2DC \uC5C6\uC74C)"]];
         return;
       }
-      fileEditContentLines = [h.answer.split("\n").map((l) => `  ${l}`)];
+      try {
+        const cmd = h.repoPath ? `git -C "${h.repoPath}" show ${hash}` : `git show ${hash}`;
+        const output = (0, import_child_process4.execSync)(cmd, { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
+        fileEditContentLines = [output.split("\n").map((l) => `  ${l}`)];
+      } catch {
+        fileEditContentLines = [[`  git show ${hash} \uC2E4\uD589 \uC2E4\uD328 (\uC800\uC7A5\uC18C\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC74C)`]];
+      }
       return;
     }
     if (!h?.fileEdits || h.fileEdits.length === 0) {
@@ -853,7 +931,8 @@ function cmdView() {
   function renderFileEdits(contentHeight, cols) {
     const h = histories[historyIdx];
     if (h?.source === "git-commit") {
-      process.stdout.write(`  \uCEE4\uBC0B \uBCC0\uACBD\uC0AC\uD56D  \x1B[2m[diff --stat]\x1B[0m
+      const hash = h?.answer || "";
+      process.stdout.write(`  git show \x1B[1;33m${hash}\x1B[0m
 `);
       process.stdout.write("\u2500".repeat(cols) + "\n");
     } else {
@@ -886,7 +965,7 @@ function cmdView() {
     const hasFileEdits = !isGitCommit && !!currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
     let fileEditsHint = "";
     if (isGitCommit && currentHistory.answer) {
-      fileEditsHint = `  \x1B[33m[\uBCC0\uACBD\uC0AC\uD56D diff]\x1B[0m`;
+      fileEditsHint = `  \x1B[33m[\uCEE4\uBC0B \uD574\uC2DC]\x1B[0m`;
     } else if (hasFileEdits) {
       let editCount = 0;
       let writeCount = 0;
@@ -1221,7 +1300,7 @@ function cmdUpdate() {
   console.log("\ndaily-journal \uC5C5\uB370\uC774\uD2B8 \uC911...\n");
   console.log("1. \uCD5C\uC2E0 \uCF54\uB4DC \uBC1B\uB294 \uC911 (git pull)...");
   try {
-    const pullOutput = (0, import_child_process3.execSync)("git pull", { cwd: PLUGIN_DIR2, encoding: "utf-8" });
+    const pullOutput = (0, import_child_process5.execSync)("git pull", { cwd: PLUGIN_DIR2, encoding: "utf-8" });
     console.log("  " + pullOutput.trim().replace(/\n/g, "\n  "));
   } catch (e) {
     console.error("  \u2717 git pull \uC2E4\uD328:", e.stderr || String(e));
@@ -1229,7 +1308,7 @@ function cmdUpdate() {
   }
   console.log("2. \uBE4C\uB4DC \uC911...");
   try {
-    (0, import_child_process3.execSync)("npm run build:bundle", { cwd: PLUGIN_DIR2, encoding: "utf-8", stdio: "pipe" });
+    (0, import_child_process5.execSync)("npm run build:bundle", { cwd: PLUGIN_DIR2, encoding: "utf-8", stdio: "pipe" });
     console.log("  \u2713 \uBE4C\uB4DC \uC644\uB8CC");
   } catch (e) {
     console.error("  \u2717 \uBE4C\uB4DC \uC2E4\uD328:", e.stderr || String(e));

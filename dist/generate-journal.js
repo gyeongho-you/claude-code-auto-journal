@@ -35,6 +35,7 @@ __export(generate_journal_exports, {
 module.exports = __toCommonJS(generate_journal_exports);
 var fs3 = __toESM(require("fs"));
 var path3 = __toESM(require("path"));
+var import_child_process2 = require("child_process");
 
 // src/config.ts
 var fs = __toESM(require("fs"));
@@ -230,9 +231,9 @@ function buildPromptData(historyByProject) {
       const duration = calcDuration(e.time, entries[i + 1]?.time);
       const durationLabel = duration ? ` ${duration}` : "";
       if (e.source === "git-commit") {
+        const hashRef = e.answer ? ` @#$(${e.answer})#@$` : "";
         return `---
-[\uCEE4\uBC0B${durationLabel}] ${e.prompt}
-${e.answer}`;
+[\uCEE4\uBC0B${durationLabel}] ${e.prompt}${hashRef}`;
       }
       return `---
 [\uC791\uC5C5${durationLabel}] ${e.prompt}
@@ -278,6 +279,73 @@ ${chunkData}`;
   if (!output) throw new Error("\uCCAD\uD06C \uC751\uB2F5 \uC5C6\uC74C");
   return output;
 }
+function formatDiffSection(showOutput) {
+  const parts = showOutput.split(/^diff --git /m);
+  const fileSections = parts.slice(1);
+  if (fileSections.length === 0) return showOutput;
+  return fileSections.map((section) => {
+    const lines = section.split("\n");
+    const fileMatch = lines[0].match(/ b\/(.+)$/);
+    const filename = fileMatch ? fileMatch[1] : lines[0];
+    const diffStartIdx = lines.findIndex((l) => l.startsWith("@@"));
+    const diffLines = diffStartIdx !== -1 ? lines.slice(diffStartIdx) : lines.slice(1);
+    return `-${filename}-
+
+\`\`\`diff
+${diffLines.join("\n").trimEnd()}
+\`\`\``;
+  }).join("\n\n---\n\n");
+}
+function postProcessCommitDiffs(journalPath, historyDir) {
+  let content;
+  try {
+    content = fs3.readFileSync(journalPath, "utf-8");
+  } catch {
+    return;
+  }
+  if (!content.includes("@#$(")) return;
+  const hashToRepo = {};
+  try {
+    const files = fs3.readdirSync(historyDir).filter((f) => f.endsWith(".jsonl"));
+    for (const file of files) {
+      const lines = fs3.readFileSync(path3.join(historyDir, file), "utf-8").trim().split("\n").filter(Boolean);
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.source === "git-commit" && entry.answer && entry.repoPath) {
+            hashToRepo[entry.answer] = entry.repoPath;
+          }
+        } catch {
+        }
+      }
+    }
+  } catch {
+    return;
+  }
+  const replaced = content.replace(/@#\$\(([a-f0-9]+)\)#@\$/g, (_fullMatch, hash) => {
+    const repoPath = hashToRepo[hash];
+    if (!repoPath) return hash;
+    try {
+      const showOutput = (0, import_child_process2.execSync)(`git -C "${repoPath}" show ${hash}`, {
+        encoding: "utf-8",
+        maxBuffer: 10 * 1024 * 1024
+      });
+      const formatted = formatDiffSection(showOutput);
+      return `<details>
+<summary>${hash}</summary>
+
+${formatted}
+
+</details>`;
+    } catch {
+      return hash;
+    }
+  });
+  if (replaced !== content) {
+    fs3.writeFileSync(journalPath, replaced, "utf-8");
+    console.log(`  \u2713 \uCEE4\uBC0B diff \uC0BD\uC785 \uC644\uB8CC`);
+  }
+}
 function main() {
   const config = loadConfig();
   writeJournal(getDateString(config.timeZone), config);
@@ -307,7 +375,9 @@ function generateJournalForDate(date, config) {
     const journalContent = estimateTokens(data) <= MAX_DATA_TOKENS ? generateSingle(date, data, config) : generateChunked(date, data, config);
     if (!journalContent) return;
     fs3.mkdirSync(dateDir, { recursive: true });
-    fs3.writeFileSync(path3.join(dateDir, "journal.md"), journalContent, "utf-8");
+    const journalPath = path3.join(dateDir, "journal.md");
+    fs3.writeFileSync(journalPath, journalContent, "utf-8");
+    postProcessCommitDiffs(journalPath, historyDir);
     recordRunHistory({ date, status: "success", timestamp });
     console.log(`  \u2713 \uC644\uB8CC \u2192 ${path3.join(dateDir, "journal.md")}`);
   } else {

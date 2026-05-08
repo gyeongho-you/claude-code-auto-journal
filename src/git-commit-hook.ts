@@ -29,11 +29,11 @@ function main(): void {
     return;
   }
 
-  let diffStat: string;
+  let commitHash: string;
   try {
-    diffStat = execSync('git diff-tree --no-commit-id -r --stat HEAD', { encoding: 'utf-8' }).trim();
+    commitHash = execSync('git log -1 --format=%h', { encoding: 'utf-8' }).trim();
   } catch {
-    diffStat = '';
+    commitHash = '';
   }
 
   const todayDir = getTodayDir(config);
@@ -44,8 +44,9 @@ function main(): void {
     time: getDateStringWithHourMinutes(config.timeZone),
     prompt: commitMessage,
     summary: '',
-    answer: diffStat,
+    answer: commitHash,
     source: 'git-commit',
+    repoPath: repoRoot,
   };
 
   fs.appendFileSync(

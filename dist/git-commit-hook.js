@@ -154,11 +154,11 @@ function main() {
     logError("git-commit-hook: \uCEE4\uBC0B \uBA54\uC2DC\uC9C0 \uC77D\uAE30 \uC2E4\uD328");
     return;
   }
-  let diffStat;
+  let commitHash;
   try {
-    diffStat = (0, import_child_process.execSync)("git diff-tree --no-commit-id -r --stat HEAD", { encoding: "utf-8" }).trim();
+    commitHash = (0, import_child_process.execSync)("git log -1 --format=%h", { encoding: "utf-8" }).trim();
   } catch {
-    diffStat = "";
+    commitHash = "";
   }
   const todayDir = getTodayDir(config);
   const historyDir = path2.join(todayDir, "history");
@@ -167,8 +167,9 @@ function main() {
     time: getDateStringWithHourMinutes(config.timeZone),
     prompt: commitMessage,
     summary: "",
-    answer: diffStat,
-    source: "git-commit"
+    answer: commitHash,
+    source: "git-commit",
+    repoPath: repoRoot
   };
   fs2.appendFileSync(
     path2.join(historyDir, `${projectName}.jsonl`),
