@@ -105,6 +105,13 @@ export function cmdView(): void {
 
   function buildFileEditLines(hIdx: number): void {
     const h = histories[hIdx];
+
+    if (h?.source === 'git-commit') {
+      if (!h.answer) { fileEditContentLines = []; return; }
+      fileEditContentLines = [h.answer.split('\n').map(l => `  ${l}`)];
+      return;
+    }
+
     if (!h?.fileEdits || h.fileEdits.length === 0) {
       fileEditContentLines = [];
       return;
@@ -134,15 +141,21 @@ export function cmdView(): void {
       const addText = (text: string) =>
         text.split('\n').forEach(l => wrapLine(l, innerCols).forEach(w => lines.push(`  ${w}`)));
 
-      lines.push(`\x1b[1;36m[ 질문 ]\x1b[0m`);
-      addText(h.prompt);
-      lines.push(``);
-      lines.push(`\x1b[1;32m[ 응답 ]\x1b[0m`);
-      addText(h.answer ?? ' - ');
-      lines.push(``);
-      lines.push(`\x1b[1;33m[ 요약 ]\x1b[0m`);
-      addText(h.summary);
-      lines.push(``);
+      if (h.source === 'git-commit') {
+        lines.push(`\x1b[1;36m[ 커밋 메시지 ]\x1b[0m`);
+        addText(h.prompt);
+        lines.push(``);
+      } else {
+        lines.push(`\x1b[1;36m[ 질문 ]\x1b[0m`);
+        addText(h.prompt);
+        lines.push(``);
+        lines.push(`\x1b[1;32m[ 응답 ]\x1b[0m`);
+        addText(h.answer ?? ' - ');
+        lines.push(``);
+        lines.push(`\x1b[1;33m[ 요약 ]\x1b[0m`);
+        addText(h.summary);
+        lines.push(``);
+      }
       return lines;
     });
   }
@@ -200,18 +213,22 @@ export function cmdView(): void {
 
   function renderFileEdits(contentHeight: number, cols: number): void {
     const h = histories[historyIdx];
-    const edits = h?.fileEdits ?? [];
 
-    if (edits.length === 0) {
-      process.stdout.write('  수정된 파일이 없습니다.\n');
-      for (let i = 1; i < contentHeight + 2; i++) process.stdout.write('\n');
-      return;
+    if (h?.source === 'git-commit') {
+      process.stdout.write(`  커밋 변경사항  \x1b[2m[diff --stat]\x1b[0m\n`);
+      process.stdout.write('─'.repeat(cols) + '\n');
+    } else {
+      const edits = h?.fileEdits ?? [];
+      if (edits.length === 0) {
+        process.stdout.write('  수정된 파일이 없습니다.\n');
+        for (let i = 1; i < contentHeight + 2; i++) process.stdout.write('\n');
+        return;
+      }
+      const edit = edits[fileEditIdx];
+      const toolLabel = edit.tool === 'Write' ? '신규' : '수정';
+      process.stdout.write(`  ${edit.file}  \x1b[2m[${toolLabel}]\x1b[0m  (${fileEditIdx + 1} / ${edits.length})\n`);
+      process.stdout.write('─'.repeat(cols) + '\n');
     }
-
-    const edit = edits[fileEditIdx];
-    const toolLabel = edit.tool === 'Write' ? '신규' : '수정';
-    process.stdout.write(`  ${edit.file}  \x1b[2m[${toolLabel}]\x1b[0m  (${fileEditIdx + 1} / ${edits.length})\n`);
-    process.stdout.write('─'.repeat(cols) + '\n');
 
     const lines = fileEditContentLines[fileEditIdx] ?? [];
     const maxScroll = Math.max(0, lines.length - contentHeight);
@@ -228,19 +245,20 @@ export function cmdView(): void {
     process.stdout.write('─'.repeat(cols) + '\n');
 
     const currentHistory = histories[historyIdx];
-    const hasFileEdits = currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
+    const isGitCommit = currentHistory?.source === 'git-commit';
+    const hasFileEdits = !isGitCommit && !!currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
 
     let fileEditsHint = '';
 
-    if(hasFileEdits){
+    if (isGitCommit && currentHistory.answer) {
+      fileEditsHint = `  \x1b[33m[변경사항 diff]\x1b[0m`;
+    } else if (hasFileEdits) {
       let editCount = 0;
       let writeCount = 0;
-
       currentHistory.fileEdits?.forEach(edit => {
         if(edit.tool === 'Write') writeCount++;
         else editCount++;
-      })
-
+      });
       const parts = [
         editCount > 0 ? `수정파일 ${editCount}건` : '',
         writeCount > 0 ? `생성파일 ${writeCount}건` : '',

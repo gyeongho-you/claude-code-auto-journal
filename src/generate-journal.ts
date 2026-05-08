@@ -32,11 +32,33 @@ function loadHistoryByProject(historyDir: string): Record<string, HistoryEntry[]
   return result;
 }
 
+function calcDuration(currentTime: string, nextTime: string | undefined): string {
+  if (!nextTime) return '';
+  const toMinutes = (t: string) => {
+    const part = t.includes(' ') ? t.split(' ')[1] : t;
+    const [h, m] = part.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const diff = toMinutes(nextTime) - toMinutes(currentTime);
+  if (diff <= 0) return '';
+  if (diff < 60) return `${diff}분`;
+  const h = Math.floor(diff / 60);
+  const m = diff % 60;
+  return m > 0 ? `${h}h ${m}분` : `${h}h`;
+}
+
 function buildPromptData(historyByProject: Record<string, HistoryEntry[]>): string {
   return Object.entries(historyByProject)
     .map(([project, entries]) => {
       const items = entries
-        .map(e => `---\n[작업] ${e.prompt}\n${e.summary ? '[요약]' + e.summary.replace(/\n/g, ' ') : '[정리필요]' + e.answer.replace(/\n/g, ' ')}`)
+        .map((e, i) => {
+          const duration = calcDuration(e.time, entries[i + 1]?.time);
+          const durationLabel = duration ? ` ${duration}` : '';
+          if (e.source === 'git-commit') {
+            return `---\n[커밋${durationLabel}] ${e.prompt}\n${e.answer}`;
+          }
+          return `---\n[작업${durationLabel}] ${e.prompt}\n${e.summary ? '[요약]' + e.summary.replace(/\n/g, ' ') : '[정리필요]' + e.answer.replace(/\n/g, ' ')}`;
+        })
         .join('\n');
       return `## ${project}\n${items}`;
     })

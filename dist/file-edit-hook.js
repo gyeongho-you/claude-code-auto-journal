@@ -30,6 +30,8 @@ var path2 = __toESM(require("path"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
+var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 

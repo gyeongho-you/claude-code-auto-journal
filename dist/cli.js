@@ -44,6 +44,8 @@ var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
+var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
@@ -90,6 +92,7 @@ function loadConfig() {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
@@ -137,6 +140,14 @@ function recordRunHistory(entry) {
     history[entry.date] = entry;
     fs.writeFileSync(historyPath, JSON.stringify(history, null, 2), "utf-8");
   } catch {
+  }
+}
+function loadGitHooks() {
+  if (!fs.existsSync(GIT_HOOKS_PATH)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(GIT_HOOKS_PATH, "utf-8"));
+  } catch {
+    return {};
   }
 }
 function logError(message) {
@@ -214,11 +225,34 @@ function loadHistoryByProject(historyDir) {
   }
   return result;
 }
+function calcDuration(currentTime, nextTime) {
+  if (!nextTime) return "";
+  const toMinutes = (t) => {
+    const part = t.includes(" ") ? t.split(" ")[1] : t;
+    const [h2, m2] = part.split(":").map(Number);
+    return h2 * 60 + m2;
+  };
+  const diff = toMinutes(nextTime) - toMinutes(currentTime);
+  if (diff <= 0) return "";
+  if (diff < 60) return `${diff}\uBD84`;
+  const h = Math.floor(diff / 60);
+  const m = diff % 60;
+  return m > 0 ? `${h}h ${m}\uBD84` : `${h}h`;
+}
 function buildPromptData(historyByProject) {
   return Object.entries(historyByProject).map(([project, entries]) => {
-    const items = entries.map((e) => `---
-[\uC791\uC5C5] ${e.prompt}
-${e.summary ? "[\uC694\uC57D]" + e.summary.replace(/\n/g, " ") : "[\uC815\uB9AC\uD544\uC694]" + e.answer.replace(/\n/g, " ")}`).join("\n");
+    const items = entries.map((e, i) => {
+      const duration = calcDuration(e.time, entries[i + 1]?.time);
+      const durationLabel = duration ? ` ${duration}` : "";
+      if (e.source === "git-commit") {
+        return `---
+[\uCEE4\uBC0B${durationLabel}] ${e.prompt}
+${e.answer}`;
+      }
+      return `---
+[\uC791\uC5C5${durationLabel}] ${e.prompt}
+${e.summary ? "[\uC694\uC57D]" + e.summary.replace(/\n/g, " ") : "[\uC815\uB9AC\uD544\uC694]" + e.answer.replace(/\n/g, " ")}`;
+    }).join("\n");
     return `## ${project}
 ${items}`;
   }).join("\n\n");
@@ -374,7 +408,6 @@ var path4 = __toESM(require("path"));
 var import_child_process2 = require("child_process");
 var HOME = os3.homedir();
 var CLAUDE_DIR = path4.join(HOME, ".claude");
-var PLUGIN_DIR = path4.join(CLAUDE_DIR, "plugins", "daily-journal");
 var SETTINGS_PATH = path4.join(CLAUDE_DIR, "settings.json");
 function initClaudeSetting() {
   const stopHookCommand = `node "${path4.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
@@ -502,12 +535,7 @@ function createUserConfigIfAbsent() {
   const userConfigPath = path4.join(DATA_DIR, "user-config.json");
   const defaultConfig = loadDefaultConfig();
   const userConfigTemplate = {
-    schedule: {
-      use: defaultConfig.schedule.use,
-      start: defaultConfig.schedule.start,
-      end: defaultConfig.schedule.end,
-      generateAt: defaultConfig.schedule.generateAt
-    },
+    schedule: { ...defaultConfig.schedule },
     summary: {
       use: defaultConfig.summary.use,
       claudeModel: defaultConfig.summary.claudeModel,
@@ -518,6 +546,8 @@ function createUserConfigIfAbsent() {
       claudeModel: defaultConfig.journal.claudeModel,
       output_dir: defaultConfig.journal.output_dir
     },
+    focus: { ...defaultConfig.focus },
+    gitCommit: { ...defaultConfig.gitCommit },
     cleanup: defaultConfig.cleanup,
     save: defaultConfig.save,
     timeZone: defaultConfig.timeZone
@@ -595,10 +625,38 @@ function removeClaudeSetting() {
   fs4.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
   console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
+function removeGitHooks() {
+  const hooks = loadGitHooks();
+  const entries = Object.entries(hooks);
+  if (entries.length === 0) return;
+  for (const [project, entry] of entries) {
+    if (entry.status !== "registered" || !entry.hookPath) continue;
+    try {
+      const bakPath = entry.hookPath + ".bak";
+      if (fs4.existsSync(bakPath)) {
+        fs4.copyFileSync(bakPath, entry.hookPath);
+        fs4.unlinkSync(bakPath);
+        if (process.platform !== "win32") fs4.chmodSync(entry.hookPath, 493);
+        console.log(`\u2713 git hook \uBCF5\uC6D0: ${project}`);
+      } else if (fs4.existsSync(entry.hookPath)) {
+        fs4.unlinkSync(entry.hookPath);
+        console.log(`\u2713 git hook \uC0AD\uC81C: ${project}`);
+      }
+    } catch (e) {
+      console.warn(`\u26A0 git hook \uC815\uB9AC \uC2E4\uD328 (${project}): ${e}`);
+    }
+  }
+  try {
+    fs4.unlinkSync(GIT_HOOKS_PATH);
+  } catch {
+  }
+  console.log("\u2713 git hook \uB4F1\uB85D \uAE30\uB85D \uC0AD\uC81C \uC644\uB8CC");
+}
 function uninstall() {
   removeClaudeSetting();
   console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
   unregisterTaskScheduler();
+  removeGitHooks();
   try {
     (0, import_child_process2.execSync)("npm unlink", { cwd: PLUGIN_DIR, stdio: "ignore" });
     console.log("\u2713 CLI \uC804\uC5ED \uC0AD\uC81C \uC644\uB8CC");
@@ -693,6 +751,14 @@ function cmdView() {
   }
   function buildFileEditLines(hIdx) {
     const h = histories[hIdx];
+    if (h?.source === "git-commit") {
+      if (!h.answer) {
+        fileEditContentLines = [];
+        return;
+      }
+      fileEditContentLines = [h.answer.split("\n").map((l) => `  ${l}`)];
+      return;
+    }
     if (!h?.fileEdits || h.fileEdits.length === 0) {
       fileEditContentLines = [];
       return;
@@ -717,15 +783,21 @@ function cmdView() {
     contentLines = histories.map((h) => {
       const lines = [];
       const addText = (text) => text.split("\n").forEach((l) => wrapLine(l, innerCols).forEach((w) => lines.push(`  ${w}`)));
-      lines.push(`\x1B[1;36m[ \uC9C8\uBB38 ]\x1B[0m`);
-      addText(h.prompt);
-      lines.push(``);
-      lines.push(`\x1B[1;32m[ \uC751\uB2F5 ]\x1B[0m`);
-      addText(h.answer ?? " - ");
-      lines.push(``);
-      lines.push(`\x1B[1;33m[ \uC694\uC57D ]\x1B[0m`);
-      addText(h.summary);
-      lines.push(``);
+      if (h.source === "git-commit") {
+        lines.push(`\x1B[1;36m[ \uCEE4\uBC0B \uBA54\uC2DC\uC9C0 ]\x1B[0m`);
+        addText(h.prompt);
+        lines.push(``);
+      } else {
+        lines.push(`\x1B[1;36m[ \uC9C8\uBB38 ]\x1B[0m`);
+        addText(h.prompt);
+        lines.push(``);
+        lines.push(`\x1B[1;32m[ \uC751\uB2F5 ]\x1B[0m`);
+        addText(h.answer ?? " - ");
+        lines.push(``);
+        lines.push(`\x1B[1;33m[ \uC694\uC57D ]\x1B[0m`);
+        addText(h.summary);
+        lines.push(``);
+      }
       return lines;
     });
   }
@@ -780,17 +852,23 @@ function cmdView() {
   }
   function renderFileEdits(contentHeight, cols) {
     const h = histories[historyIdx];
-    const edits = h?.fileEdits ?? [];
-    if (edits.length === 0) {
-      process.stdout.write("  \uC218\uC815\uB41C \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.\n");
-      for (let i = 1; i < contentHeight + 2; i++) process.stdout.write("\n");
-      return;
-    }
-    const edit = edits[fileEditIdx];
-    const toolLabel = edit.tool === "Write" ? "\uC2E0\uADDC" : "\uC218\uC815";
-    process.stdout.write(`  ${edit.file}  \x1B[2m[${toolLabel}]\x1B[0m  (${fileEditIdx + 1} / ${edits.length})
+    if (h?.source === "git-commit") {
+      process.stdout.write(`  \uCEE4\uBC0B \uBCC0\uACBD\uC0AC\uD56D  \x1B[2m[diff --stat]\x1B[0m
 `);
-    process.stdout.write("\u2500".repeat(cols) + "\n");
+      process.stdout.write("\u2500".repeat(cols) + "\n");
+    } else {
+      const edits = h?.fileEdits ?? [];
+      if (edits.length === 0) {
+        process.stdout.write("  \uC218\uC815\uB41C \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.\n");
+        for (let i = 1; i < contentHeight + 2; i++) process.stdout.write("\n");
+        return;
+      }
+      const edit = edits[fileEditIdx];
+      const toolLabel = edit.tool === "Write" ? "\uC2E0\uADDC" : "\uC218\uC815";
+      process.stdout.write(`  ${edit.file}  \x1B[2m[${toolLabel}]\x1B[0m  (${fileEditIdx + 1} / ${edits.length})
+`);
+      process.stdout.write("\u2500".repeat(cols) + "\n");
+    }
     const lines = fileEditContentLines[fileEditIdx] ?? [];
     const maxScroll = Math.max(0, lines.length - contentHeight);
     if (fileEditScrollOffset > maxScroll) fileEditScrollOffset = maxScroll;
@@ -804,9 +882,12 @@ function cmdView() {
 `);
     process.stdout.write("\u2500".repeat(cols) + "\n");
     const currentHistory = histories[historyIdx];
-    const hasFileEdits = currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
+    const isGitCommit = currentHistory?.source === "git-commit";
+    const hasFileEdits = !isGitCommit && !!currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
     let fileEditsHint = "";
-    if (hasFileEdits) {
+    if (isGitCommit && currentHistory.answer) {
+      fileEditsHint = `  \x1B[33m[\uBCC0\uACBD\uC0AC\uD56D diff]\x1B[0m`;
+    } else if (hasFileEdits) {
       let editCount = 0;
       let writeCount = 0;
       currentHistory.fileEdits?.forEach((edit) => {
@@ -1064,6 +1145,9 @@ function cmdConfig() {
 `);
   console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60) + "..." : config.journal.stylePrompt}"`);
   console.log(`                           - \uC77C\uC9C0 \uC791\uC131 \uC2A4\uD0C0\uC77C \uB4F1\uC744 \uC815\uD558\uB294 \uD504\uB86C\uD504\uD2B8 
+`);
+  console.log(`  gitCommit.use        : ${config.gitCommit.use}`);
+  console.log(`                           - true \uC2DC git commit \uBC1C\uC0DD \uC2DC \uC790\uB3D9\uC73C\uB85C \uCEE4\uBC0B \uB0B4\uC5ED\uC744 \uC77C\uC9C0\uC5D0 \uAE30\uB85D. Claude \uC5C6\uC774 \uC218\uC815\uD55C \uC0AC\uD56D\uB3C4 \uD3EC\uD568\uB428 
 `);
   console.log(`  cleanup              : ${config.cleanup}`);
   console.log(`                           - \uC77C\uC9C0 \uC0DD\uC131 \uD6C4 history \uD30C\uC77C \uC0AD\uC81C \uC5EC\uBD80 ( \uB2F9\uC77C \uC0DD\uC131\uB41C history\uB294 \uC0AD\uC81C\uB418\uC9C0 \uC54A\uC74C ) 

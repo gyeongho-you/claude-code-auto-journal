@@ -6,8 +6,8 @@
     "dj": "dist/cli.js"
   },
   "scripts": {
-    "build": "esbuild src/stop-hook.ts src/generate-journal.ts src/setup.ts src/cli.ts src/file-edit-hook.ts --bundle --platform=node --outdir=dist",
-    "build:bundle": "esbuild src/stop-hook.ts --bundle --platform=node --outfile=dist/stop-hook.js && esbuild src/generate-journal.ts --bundle --platform=node --outfile=dist/generate-journal.js && esbuild src/setup.ts --bundle --platform=node --outfile=dist/setup.js && esbuild src/cli.ts --bundle --platform=node --outfile=dist/cli.js"
+    "build": "esbuild src/stop-hook.ts src/generate-journal.ts src/setup.ts src/cli.ts src/file-edit-hook.ts src/git-commit-hook.ts --bundle --platform=node --outdir=dist",
+    "build:bundle": "esbuild src/stop-hook.ts --bundle --platform=node --outfile=dist/stop-hook.js && esbuild src/generate-journal.ts --bundle --platform=node --outfile=dist/generate-journal.js && esbuild src/setup.ts --bundle --platform=node --outfile=dist/setup.js && esbuild src/cli.ts --bundle --platform=node --outfile=dist/cli.js && esbuild src/git-commit-hook.ts --bundle --platform=node --outfile=dist/git-commit-hook.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

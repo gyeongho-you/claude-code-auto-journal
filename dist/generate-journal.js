@@ -41,6 +41,8 @@ var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
+var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
@@ -87,6 +89,7 @@ function loadConfig() {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
@@ -207,11 +210,34 @@ function loadHistoryByProject(historyDir) {
   }
   return result;
 }
+function calcDuration(currentTime, nextTime) {
+  if (!nextTime) return "";
+  const toMinutes = (t) => {
+    const part = t.includes(" ") ? t.split(" ")[1] : t;
+    const [h2, m2] = part.split(":").map(Number);
+    return h2 * 60 + m2;
+  };
+  const diff = toMinutes(nextTime) - toMinutes(currentTime);
+  if (diff <= 0) return "";
+  if (diff < 60) return `${diff}\uBD84`;
+  const h = Math.floor(diff / 60);
+  const m = diff % 60;
+  return m > 0 ? `${h}h ${m}\uBD84` : `${h}h`;
+}
 function buildPromptData(historyByProject) {
   return Object.entries(historyByProject).map(([project, entries]) => {
-    const items = entries.map((e) => `---
-[\uC791\uC5C5] ${e.prompt}
-${e.summary ? "[\uC694\uC57D]" + e.summary.replace(/\n/g, " ") : "[\uC815\uB9AC\uD544\uC694]" + e.answer.replace(/\n/g, " ")}`).join("\n");
+    const items = entries.map((e, i) => {
+      const duration = calcDuration(e.time, entries[i + 1]?.time);
+      const durationLabel = duration ? ` ${duration}` : "";
+      if (e.source === "git-commit") {
+        return `---
+[\uCEE4\uBC0B${durationLabel}] ${e.prompt}
+${e.answer}`;
+      }
+      return `---
+[\uC791\uC5C5${durationLabel}] ${e.prompt}
+${e.summary ? "[\uC694\uC57D]" + e.summary.replace(/\n/g, " ") : "[\uC815\uB9AC\uD544\uC694]" + e.answer.replace(/\n/g, " ")}`;
+    }).join("\n");
     return `## ${project}
 ${items}`;
   }).join("\n\n");

@@ -1,16 +1,20 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import {
   getDateString,
   getDateStringWithHourMinutes,
   getNowMinutes,
   getTodayDir,
   loadConfig,
+  loadGitHooks,
   logError,
+  PLUGIN_DIR,
   readAndClearSessionEdits,
-  recordRunHistory
+  recordRunHistory,
+  saveGitHooks
 } from './config';
-import {ClaudeModel, HistoryEntry, StdinPayload, TranscriptLine} from './types';
+import {ClaudeModel, Config, HistoryEntry, StdinPayload, TranscriptLine} from './types';
 import {callClaude} from "./claude";
 
 function isInTimeRange(start: string, end: string, timeZone: string): boolean {
@@ -60,6 +64,61 @@ function getLastUserMessage(transcriptPath: string): string | null {
   return null;
 }
 
+function buildHookScript(gitCommitHookJsPath: string, hasBackup: boolean): string {
+  const nodePath = gitCommitHookJsPath.replace(/\\/g, '/');
+  const chainLine = hasBackup ? `[ -f "$(dirname "$0")/post-commit.bak" ] && "$(dirname "$0")/post-commit.bak"\n` : '';
+  return `#!/bin/sh\n# daily-journal\n${chainLine}node "${nodePath}"\n`;
+}
+
+function tryRegisterGitHook(cwd: string, projectName: string, config: Config): void {
+  const hooks = loadGitHooks();
+  const entry = hooks[projectName];
+  const today = getDateString(config.timeZone);
+
+  if (entry?.status === 'registered') return;
+  if (entry?.status === 'failed' && entry.timestamp.substring(0, 10) === today) return;
+
+  let repoRoot: string;
+  try {
+    repoRoot = execSync(`git -C "${cwd}" rev-parse --show-toplevel`, { encoding: 'utf-8' }).trim();
+  } catch {
+    return;
+  }
+
+  const hookPath = path.join(repoRoot, '.git', 'hooks', 'post-commit');
+  const gitCommitHookJsPath = path.join(PLUGIN_DIR, 'dist', 'git-commit-hook.js');
+  const timestamp = new Date().toISOString();
+
+  try {
+    let hasBackup = false;
+
+    if (fs.existsSync(hookPath)) {
+      const existing = fs.readFileSync(hookPath, 'utf-8');
+      if (existing.includes('daily-journal')) {
+        hooks[projectName] = { status: 'registered', timestamp, hookPath };
+        saveGitHooks(hooks);
+        return;
+      }
+      const bakPath = hookPath + '.bak';
+      if (!fs.existsSync(bakPath)) {
+        fs.copyFileSync(hookPath, bakPath);
+        if (process.platform !== 'win32') fs.chmodSync(bakPath, 0o755);
+      }
+      hasBackup = true;
+    }
+
+    fs.writeFileSync(hookPath, buildHookScript(gitCommitHookJsPath, hasBackup), 'utf-8');
+    if (process.platform !== 'win32') fs.chmodSync(hookPath, 0o755);
+
+    hooks[projectName] = { status: 'registered', timestamp, hookPath };
+    saveGitHooks(hooks);
+  } catch (e) {
+    hooks[projectName] = { status: 'failed', timestamp, hookPath, error: String(e) };
+    saveGitHooks(hooks);
+    logError(`git hook 등록 실패 (${projectName}): ${e}`);
+  }
+}
+
 function summarize(defaultPrompt: string, stylePrompt: string, response: string, model: ClaudeModel): string {
   const input = `${defaultPrompt}\n${stylePrompt}\n\n<content>\n${response}\n</content>`;
   const result = callClaude(input, model);
@@ -94,6 +153,10 @@ function main(): void {
 
   if(config.focus && config.focus.use && !config.focus.files.includes(projectName)) {
      return;
+  }
+
+  if (config.save && config.gitCommit.use) {
+    tryRegisterGitHook(cwd, projectName, config);
   }
 
   if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {

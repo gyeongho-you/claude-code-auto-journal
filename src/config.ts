@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Config, FileEditEntry, RunHistoryEntry } from './types';
+import { Config, FileEditEntry, GitHookEntry, RunHistoryEntry } from './types';
 
 export const DATA_DIR = path.join(os.homedir(), '.claude', 'daily-journal');
+export const PLUGIN_DIR = path.join(os.homedir(), '.claude', 'plugins', 'daily-journal');
+export const GIT_HOOKS_PATH = path.join(DATA_DIR, 'git-hooks.json');
 export const SESSION_EDITS_DIR = path.join(os.homedir(), '.claude', 'session-edits');
 const DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, 'data');
 
@@ -55,6 +57,7 @@ export function loadConfig(): Config {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir,
       },
       focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone),
@@ -156,6 +159,19 @@ export function readAndClearSessionEdits(sessionId: string): FileEditEntry[] {
   } catch {
     return [];
   }
+}
+
+export function loadGitHooks(): Record<string, GitHookEntry> {
+  if (!fs.existsSync(GIT_HOOKS_PATH)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(GIT_HOOKS_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+export function saveGitHooks(hooks: Record<string, GitHookEntry>): void {
+  fs.writeFileSync(GIT_HOOKS_PATH, JSON.stringify(hooks, null, 2), 'utf-8');
 }
 
 export function logError(message: string): void {

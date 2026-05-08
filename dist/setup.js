@@ -43,6 +43,8 @@ var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
+var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
@@ -89,6 +91,7 @@ function loadConfig() {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
@@ -112,6 +115,14 @@ function getDateStringWithHourMinutesSeconds(timeZone) {
   const get = (type) => parts.find((p) => p.type === type)?.value ?? "00";
   return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
 }
+function loadGitHooks() {
+  if (!fs.existsSync(GIT_HOOKS_PATH)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(GIT_HOOKS_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
@@ -126,7 +137,6 @@ function logError(message) {
 var import_child_process = require("child_process");
 var HOME = os2.homedir();
 var CLAUDE_DIR = path2.join(HOME, ".claude");
-var PLUGIN_DIR = path2.join(CLAUDE_DIR, "plugins", "daily-journal");
 var SETTINGS_PATH = path2.join(CLAUDE_DIR, "settings.json");
 function initClaudeSetting() {
   const stopHookCommand = `node "${path2.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
@@ -254,12 +264,7 @@ function createUserConfigIfAbsent() {
   const userConfigPath = path2.join(DATA_DIR, "user-config.json");
   const defaultConfig = loadDefaultConfig();
   const userConfigTemplate = {
-    schedule: {
-      use: defaultConfig.schedule.use,
-      start: defaultConfig.schedule.start,
-      end: defaultConfig.schedule.end,
-      generateAt: defaultConfig.schedule.generateAt
-    },
+    schedule: { ...defaultConfig.schedule },
     summary: {
       use: defaultConfig.summary.use,
       claudeModel: defaultConfig.summary.claudeModel,
@@ -270,6 +275,8 @@ function createUserConfigIfAbsent() {
       claudeModel: defaultConfig.journal.claudeModel,
       output_dir: defaultConfig.journal.output_dir
     },
+    focus: { ...defaultConfig.focus },
+    gitCommit: { ...defaultConfig.gitCommit },
     cleanup: defaultConfig.cleanup,
     save: defaultConfig.save,
     timeZone: defaultConfig.timeZone
@@ -347,10 +354,38 @@ function removeClaudeSetting() {
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
   console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
+function removeGitHooks() {
+  const hooks = loadGitHooks();
+  const entries = Object.entries(hooks);
+  if (entries.length === 0) return;
+  for (const [project, entry] of entries) {
+    if (entry.status !== "registered" || !entry.hookPath) continue;
+    try {
+      const bakPath = entry.hookPath + ".bak";
+      if (fs2.existsSync(bakPath)) {
+        fs2.copyFileSync(bakPath, entry.hookPath);
+        fs2.unlinkSync(bakPath);
+        if (process.platform !== "win32") fs2.chmodSync(entry.hookPath, 493);
+        console.log(`\u2713 git hook \uBCF5\uC6D0: ${project}`);
+      } else if (fs2.existsSync(entry.hookPath)) {
+        fs2.unlinkSync(entry.hookPath);
+        console.log(`\u2713 git hook \uC0AD\uC81C: ${project}`);
+      }
+    } catch (e) {
+      console.warn(`\u26A0 git hook \uC815\uB9AC \uC2E4\uD328 (${project}): ${e}`);
+    }
+  }
+  try {
+    fs2.unlinkSync(GIT_HOOKS_PATH);
+  } catch {
+  }
+  console.log("\u2713 git hook \uB4F1\uB85D \uAE30\uB85D \uC0AD\uC81C \uC644\uB8CC");
+}
 function uninstall() {
   removeClaudeSetting();
   console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
   unregisterTaskScheduler();
+  removeGitHooks();
   try {
     (0, import_child_process.execSync)("npm unlink", { cwd: PLUGIN_DIR, stdio: "ignore" });
     console.log("\u2713 CLI \uC804\uC5ED \uC0AD\uC81C \uC644\uB8CC");

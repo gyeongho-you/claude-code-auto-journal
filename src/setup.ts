@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {DATA_DIR, loadConfig, loadDefaultConfig} from './config';
+import {DATA_DIR, GIT_HOOKS_PATH, loadConfig, loadDefaultConfig, loadGitHooks, PLUGIN_DIR, saveGitHooks} from './config';
+import {GitHookEntry} from './types';
 import {execSync} from "child_process";
 
 const HOME = os.homedir();
 const CLAUDE_DIR = path.join(HOME, '.claude');
-const PLUGIN_DIR = path.join(CLAUDE_DIR, 'plugins', 'daily-journal');
 const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
 
 function initClaudeSetting(): void {
@@ -178,6 +178,7 @@ function createUserConfigIfAbsent(): void {
       output_dir: defaultConfig.journal.output_dir,
     },
     focus: {...defaultConfig.focus},
+    gitCommit: {...defaultConfig.gitCommit},
     cleanup: defaultConfig.cleanup,
     save: defaultConfig.save,
     timeZone: defaultConfig.timeZone,
@@ -275,6 +276,33 @@ function removeClaudeSetting(): void {
   console.log('✓ Stop 훅, PostToolUse 훅, write 권한 제거 완료');
 }
 
+function removeGitHooks(): void {
+  const hooks = loadGitHooks();
+  const entries = Object.entries(hooks) as [string, GitHookEntry][];
+  if (entries.length === 0) return;
+
+  for (const [project, entry] of entries) {
+    if (entry.status !== 'registered' || !entry.hookPath) continue;
+    try {
+      const bakPath = entry.hookPath + '.bak';
+      if (fs.existsSync(bakPath)) {
+        fs.copyFileSync(bakPath, entry.hookPath);
+        fs.unlinkSync(bakPath);
+        if (process.platform !== 'win32') fs.chmodSync(entry.hookPath, 0o755);
+        console.log(`✓ git hook 복원: ${project}`);
+      } else if (fs.existsSync(entry.hookPath)) {
+        fs.unlinkSync(entry.hookPath);
+        console.log(`✓ git hook 삭제: ${project}`);
+      }
+    } catch (e) {
+      console.warn(`⚠ git hook 정리 실패 (${project}): ${e}`);
+    }
+  }
+
+  try { fs.unlinkSync(GIT_HOOKS_PATH); } catch { /* 없으면 무시 */ }
+  console.log('✓ git hook 등록 기록 삭제 완료');
+}
+
 export function uninstall(): void {
   // 1. Stop 훅 삭제
   removeClaudeSetting();
@@ -284,7 +312,10 @@ export function uninstall(): void {
   unregisterTaskScheduler();
 
 
-  // 3. 전역 CLI 삭제 (dj 명령어)
+  // 3. git hook 정리
+  removeGitHooks();
+
+  // 4. 전역 CLI 삭제 (dj 명령어)
   try {
     execSync('npm unlink', { cwd: PLUGIN_DIR, stdio: 'ignore' });
     console.log('✓ CLI 전역 삭제 완료');

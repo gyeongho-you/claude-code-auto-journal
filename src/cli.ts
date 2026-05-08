@@ -58,6 +58,8 @@ function cmdConfig(): void {
   console.log(`                           - 일지 작성시 사용되는 claudeModel \n`);
   console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60)+ "..." : config.journal.stylePrompt}"`);
   console.log(`                           - 일지 작성 스타일 등을 정하는 프롬프트 \n`);
+  console.log(`  gitCommit.use        : ${config.gitCommit.use}`);
+  console.log(`                           - true 시 git commit 발생 시 자동으로 커밋 내역을 일지에 기록. Claude 없이 수정한 사항도 포함됨 \n`);
   console.log(`  cleanup              : ${config.cleanup}`);
   console.log(`                           - 일지 생성 후 history 파일 삭제 여부 ( 당일 생성된 history는 삭제되지 않음 ) \n`);
   console.log(`  save                 : ${config.save}`);

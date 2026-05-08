@@ -21,6 +21,9 @@ export type Config = {
     use: boolean;
     files: string[];
   };
+  gitCommit: {
+    use: boolean;
+  };
   cleanup: boolean;
   save: boolean;
   timeZone: string;
@@ -50,6 +53,14 @@ export type HistoryEntry = {
   summary: string;
   answer: string;
   fileEdits?: FileEditEntry[];
+  source?: 'conversation' | 'git-commit';
+};
+
+export type GitHookEntry = {
+  status: 'registered' | 'failed';
+  timestamp: string;
+  hookPath: string;
+  error?: string;
 };
 
 export type RunHistoryEntry = {

@@ -25,12 +25,15 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 // src/stop-hook.ts
 var fs3 = __toESM(require("fs"));
 var path3 = __toESM(require("path"));
+var import_child_process2 = require("child_process");
 
 // src/config.ts
 var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
+var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
+var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
@@ -77,6 +80,7 @@ function loadConfig() {
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
       focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
       timeZone: resolveTimeZone(userConfig.timeZone, defaultConfig.timeZone)
@@ -167,6 +171,17 @@ function readAndClearSessionEdits(sessionId) {
     return [];
   }
 }
+function loadGitHooks() {
+  if (!fs.existsSync(GIT_HOOKS_PATH)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(GIT_HOOKS_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function saveGitHooks(hooks) {
+  fs.writeFileSync(GIT_HOOKS_PATH, JSON.stringify(hooks, null, 2), "utf-8");
+}
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
@@ -256,6 +271,56 @@ function getLastUserMessage(transcriptPath) {
   }
   return null;
 }
+function buildHookScript(gitCommitHookJsPath, hasBackup) {
+  const nodePath = gitCommitHookJsPath.replace(/\\/g, "/");
+  const chainLine = hasBackup ? `[ -f "$(dirname "$0")/post-commit.bak" ] && "$(dirname "$0")/post-commit.bak"
+` : "";
+  return `#!/bin/sh
+# daily-journal
+${chainLine}node "${nodePath}"
+`;
+}
+function tryRegisterGitHook(cwd, projectName, config) {
+  const hooks = loadGitHooks();
+  const entry = hooks[projectName];
+  const today = getDateString(config.timeZone);
+  if (entry?.status === "registered") return;
+  if (entry?.status === "failed" && entry.timestamp.substring(0, 10) === today) return;
+  let repoRoot;
+  try {
+    repoRoot = (0, import_child_process2.execSync)(`git -C "${cwd}" rev-parse --show-toplevel`, { encoding: "utf-8" }).trim();
+  } catch {
+    return;
+  }
+  const hookPath = path3.join(repoRoot, ".git", "hooks", "post-commit");
+  const gitCommitHookJsPath = path3.join(PLUGIN_DIR, "dist", "git-commit-hook.js");
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    let hasBackup = false;
+    if (fs3.existsSync(hookPath)) {
+      const existing = fs3.readFileSync(hookPath, "utf-8");
+      if (existing.includes("daily-journal")) {
+        hooks[projectName] = { status: "registered", timestamp, hookPath };
+        saveGitHooks(hooks);
+        return;
+      }
+      const bakPath = hookPath + ".bak";
+      if (!fs3.existsSync(bakPath)) {
+        fs3.copyFileSync(hookPath, bakPath);
+        if (process.platform !== "win32") fs3.chmodSync(bakPath, 493);
+      }
+      hasBackup = true;
+    }
+    fs3.writeFileSync(hookPath, buildHookScript(gitCommitHookJsPath, hasBackup), "utf-8");
+    if (process.platform !== "win32") fs3.chmodSync(hookPath, 493);
+    hooks[projectName] = { status: "registered", timestamp, hookPath };
+    saveGitHooks(hooks);
+  } catch (e) {
+    hooks[projectName] = { status: "failed", timestamp, hookPath, error: String(e) };
+    saveGitHooks(hooks);
+    logError(`git hook \uB4F1\uB85D \uC2E4\uD328 (${projectName}): ${e}`);
+  }
+}
 function summarize(defaultPrompt, stylePrompt, response, model) {
   const input = `${defaultPrompt}
 ${stylePrompt}
@@ -286,6 +351,9 @@ function main() {
   const projectName = extractProjectName(cwd);
   if (config.focus && config.focus.use && !config.focus.files.includes(projectName)) {
     return;
+  }
+  if (config.save && config.gitCommit.use) {
+    tryRegisterGitHook(cwd, projectName, config);
   }
   if (!config.save || !isInTimeRange(config.schedule.start, config.schedule.end, config.timeZone)) {
     readAndClearSessionEdits(session_id);
