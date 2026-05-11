@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {DATA_DIR, GIT_HOOK_MARKER_BEGIN, GIT_HOOK_MARKER_END, GIT_HOOKS_PATH, loadConfig, loadDefaultConfig, loadGitHooks, PLUGIN_DIR, saveGitHooks} from './config';
+import {DATA_DIR, GIT_HOOK_MARKER_BEGIN, GIT_HOOK_MARKER_END, GIT_HOOKS_PATH, loadConfig, loadDefaultConfig, loadGitHooks, PLUGIN_DIR} from './config';
 import {GitHookEntry} from './types';
 import {execSync} from "child_process";
 
@@ -226,6 +226,11 @@ export function setup(): void {
   } else {
     console.log('스케줄러 제거. (daily-journal.schedule.use: false)')
     unregisterTaskScheduler();
+  }
+
+  // 5. git hook 정리 (gitCommit.use가 false면 등록된 hook 제거)
+  if (!config.gitCommit.use) {
+    removeGitHooks();
   }
 
   // 5. 전역 CLI 등록 (dj 명령어)
