@@ -182,7 +182,7 @@ function postProcessCommitDiffs(journalPath: string, historyDir: string): void {
     }
   } catch { return; }
 
-  const replaced = content.replace(/@#\$\(([a-f0-9]+)\)#@\$/g, (_fullMatch, hash) => {
+  const replaced = content.replace(/(?:^[^\S\n]*[-*]\s*)?(?:\*{1,2})?@#\$\(([a-f0-9]+)\)#@\$(?:\*{1,2})?/gm, (_fullMatch, hash) => {
     const repoPath = hashToRepo[hash];
     if (!repoPath) return hash; // 매핑 없으면 hash만 남김
 

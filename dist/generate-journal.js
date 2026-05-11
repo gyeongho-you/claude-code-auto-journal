@@ -359,7 +359,7 @@ function postProcessCommitDiffs(journalPath, historyDir) {
   } catch {
     return;
   }
-  const replaced = content.replace(/@#\$\(([a-f0-9]+)\)#@\$/g, (_fullMatch, hash) => {
+  const replaced = content.replace(/(?:^[^\S\n]*[-*]\s*)?(?:\*{1,2})?@#\$\(([a-f0-9]+)\)#@\$(?:\*{1,2})?/gm, (_fullMatch, hash) => {
     const repoPath = hashToRepo[hash];
     if (!repoPath) return hash;
     try {
@@ -368,12 +368,13 @@ function postProcessCommitDiffs(journalPath, historyDir) {
         maxBuffer: 10 * 1024 * 1024
       });
       const formatted = formatDiffSection(showOutput);
-      return `**<details>
+      return `
+<details>
 <summary>${hash}</summary>
 
 ${formatted}
 
-**</details>`;
+</details>`;
     } catch {
       return hash;
     }
