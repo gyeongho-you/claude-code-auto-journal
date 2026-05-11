@@ -34,6 +34,8 @@ var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
 var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
 var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
+var GIT_HOOK_MARKER_BEGIN = "# BEGIN daily-journal";
+var GIT_HOOK_MARKER_END = "# END daily-journal";
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
@@ -271,14 +273,11 @@ function getLastUserMessage(transcriptPath) {
   }
   return null;
 }
-function buildHookScript(gitCommitHookJsPath, hasBackup) {
+function buildDailyJournalBlock(gitCommitHookJsPath) {
   const nodePath = gitCommitHookJsPath.replace(/\\/g, "/");
-  const chainLine = hasBackup ? `[ -f "$(dirname "$0")/post-commit.bak" ] && "$(dirname "$0")/post-commit.bak"
-` : "";
-  return `#!/bin/sh
-# daily-journal
-${chainLine}node "${nodePath}"
-`;
+  return `${GIT_HOOK_MARKER_BEGIN}
+node "${nodePath}"
+${GIT_HOOK_MARKER_END}`;
 }
 function tryRegisterGitHook(cwd, projectName, config) {
   const hooks = loadGitHooks();
@@ -296,22 +295,23 @@ function tryRegisterGitHook(cwd, projectName, config) {
   const gitCommitHookJsPath = path3.join(PLUGIN_DIR, "dist", "git-commit-hook.js");
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
   try {
-    let hasBackup = false;
+    const block = buildDailyJournalBlock(gitCommitHookJsPath);
+    let content = "";
     if (fs3.existsSync(hookPath)) {
-      const existing = fs3.readFileSync(hookPath, "utf-8");
-      if (existing.includes("daily-journal")) {
+      content = fs3.readFileSync(hookPath, "utf-8");
+      if (content.includes("daily-journal")) {
         hooks[projectName] = { status: "registered", timestamp, hookPath };
         saveGitHooks(hooks);
         return;
       }
-      const bakPath = hookPath + ".bak";
-      if (!fs3.existsSync(bakPath)) {
-        fs3.copyFileSync(hookPath, bakPath);
-        if (process.platform !== "win32") fs3.chmodSync(bakPath, 493);
-      }
-      hasBackup = true;
+      if (!content.endsWith("\n")) content += "\n";
+      content += block + "\n";
+    } else {
+      content = `#!/bin/sh
+${block}
+`;
     }
-    fs3.writeFileSync(hookPath, buildHookScript(gitCommitHookJsPath, hasBackup), "utf-8");
+    fs3.writeFileSync(hookPath, content, "utf-8");
     if (process.platform !== "win32") fs3.chmodSync(hookPath, 493);
     hooks[projectName] = { status: "registered", timestamp, hookPath };
     saveGitHooks(hooks);

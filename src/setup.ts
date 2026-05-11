@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {DATA_DIR, GIT_HOOKS_PATH, loadConfig, loadDefaultConfig, loadGitHooks, PLUGIN_DIR, saveGitHooks} from './config';
+import {DATA_DIR, GIT_HOOK_MARKER_BEGIN, GIT_HOOK_MARKER_END, GIT_HOOKS_PATH, loadConfig, loadDefaultConfig, loadGitHooks, PLUGIN_DIR, saveGitHooks} from './config';
 import {GitHookEntry} from './types';
 import {execSync} from "child_process";
 
@@ -284,15 +284,44 @@ function removeGitHooks(): void {
   for (const [project, entry] of entries) {
     if (entry.status !== 'registered' || !entry.hookPath) continue;
     try {
-      const bakPath = entry.hookPath + '.bak';
+      const hookPath = entry.hookPath;
+      const bakPath = hookPath + '.bak';
+
+      // 레거시 백업 방식 호환: .bak 존재 시 복원 후 종료
       if (fs.existsSync(bakPath)) {
-        fs.copyFileSync(bakPath, entry.hookPath);
+        fs.copyFileSync(bakPath, hookPath);
         fs.unlinkSync(bakPath);
-        if (process.platform !== 'win32') fs.chmodSync(entry.hookPath, 0o755);
-        console.log(`✓ git hook 복원: ${project}`);
-      } else if (fs.existsSync(entry.hookPath)) {
-        fs.unlinkSync(entry.hookPath);
+        if (process.platform !== 'win32') fs.chmodSync(hookPath, 0o755);
+        console.log(`✓ git hook 복원 (레거시): ${project}`);
+        continue;
+      }
+
+      if (!fs.existsSync(hookPath)) continue;
+
+      const content = fs.readFileSync(hookPath, 'utf-8');
+      const startIdx = content.indexOf(GIT_HOOK_MARKER_BEGIN);
+      const endIdx = content.indexOf(GIT_HOOK_MARKER_END);
+
+      if (startIdx === -1 || endIdx === -1) {
+        // 마커 없음 - 레거시 단순 포맷이면 파일 삭제
+        if (content.includes('daily-journal')) {
+          fs.unlinkSync(hookPath);
+          console.log(`✓ git hook 삭제 (레거시): ${project}`);
+        }
+        continue;
+      }
+
+      const before = content.slice(0, startIdx).trimEnd();
+      const after = content.slice(endIdx + GIT_HOOK_MARKER_END.length).trimStart();
+      const remaining = [before, after].filter(Boolean).join('\n').trim();
+
+      if (!remaining || remaining === '#!/bin/sh') {
+        fs.unlinkSync(hookPath);
         console.log(`✓ git hook 삭제: ${project}`);
+      } else {
+        fs.writeFileSync(hookPath, remaining + '\n', 'utf-8');
+        if (process.platform !== 'win32') fs.chmodSync(hookPath, 0o755);
+        console.log(`✓ git hook daily-journal 블록 제거: ${project}`);
       }
     } catch (e) {
       console.warn(`⚠ git hook 정리 실패 (${project}): ${e}`);

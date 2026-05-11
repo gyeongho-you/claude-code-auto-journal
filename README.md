@@ -209,7 +209,18 @@ Claude 세션이 끝날 때 마지막 응답을 요약할 때 사용됩니다.
 
 **기존 hook과의 충돌 방지**
 
-등록 시 `.git/hooks/post-commit`이 이미 존재하면 `post-commit.bak`으로 백업 후 체이닝. `dj uninstall` 시 원본 복원.
+등록 시 `.git/hooks/post-commit`이 이미 존재하면 파일을 교체하지 않고, 기존 내용 끝에 마커 블록을 주입합니다.
+
+```sh
+# 기존 hook 내용 유지
+...
+
+# BEGIN daily-journal
+node "/path/to/git-commit-hook.js"
+# END daily-journal
+```
+
+`dj uninstall` 시에는 마커 블록만 제거하고 나머지 내용은 그대로 보존합니다. hook 파일 전체가 daily-journal 전용인 경우(다른 내용 없음)에는 파일을 삭제합니다.
 
 ## 수정 파일 추적
 

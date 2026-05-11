@@ -46,6 +46,8 @@ var path = __toESM(require("path"));
 var DATA_DIR = path.join(os.homedir(), ".claude", "daily-journal");
 var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
 var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
+var GIT_HOOK_MARKER_BEGIN = "# BEGIN daily-journal";
+var GIT_HOOK_MARKER_END = "# END daily-journal";
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
 function loadDefaultConfig() {
@@ -740,15 +742,36 @@ function removeGitHooks() {
   for (const [project, entry] of entries) {
     if (entry.status !== "registered" || !entry.hookPath) continue;
     try {
-      const bakPath = entry.hookPath + ".bak";
+      const hookPath = entry.hookPath;
+      const bakPath = hookPath + ".bak";
       if (fs4.existsSync(bakPath)) {
-        fs4.copyFileSync(bakPath, entry.hookPath);
+        fs4.copyFileSync(bakPath, hookPath);
         fs4.unlinkSync(bakPath);
-        if (process.platform !== "win32") fs4.chmodSync(entry.hookPath, 493);
-        console.log(`\u2713 git hook \uBCF5\uC6D0: ${project}`);
-      } else if (fs4.existsSync(entry.hookPath)) {
-        fs4.unlinkSync(entry.hookPath);
+        if (process.platform !== "win32") fs4.chmodSync(hookPath, 493);
+        console.log(`\u2713 git hook \uBCF5\uC6D0 (\uB808\uAC70\uC2DC): ${project}`);
+        continue;
+      }
+      if (!fs4.existsSync(hookPath)) continue;
+      const content = fs4.readFileSync(hookPath, "utf-8");
+      const startIdx = content.indexOf(GIT_HOOK_MARKER_BEGIN);
+      const endIdx = content.indexOf(GIT_HOOK_MARKER_END);
+      if (startIdx === -1 || endIdx === -1) {
+        if (content.includes("daily-journal")) {
+          fs4.unlinkSync(hookPath);
+          console.log(`\u2713 git hook \uC0AD\uC81C (\uB808\uAC70\uC2DC): ${project}`);
+        }
+        continue;
+      }
+      const before = content.slice(0, startIdx).trimEnd();
+      const after = content.slice(endIdx + GIT_HOOK_MARKER_END.length).trimStart();
+      const remaining = [before, after].filter(Boolean).join("\n").trim();
+      if (!remaining || remaining === "#!/bin/sh") {
+        fs4.unlinkSync(hookPath);
         console.log(`\u2713 git hook \uC0AD\uC81C: ${project}`);
+      } else {
+        fs4.writeFileSync(hookPath, remaining + "\n", "utf-8");
+        if (process.platform !== "win32") fs4.chmodSync(hookPath, 493);
+        console.log(`\u2713 git hook daily-journal \uBE14\uB85D \uC81C\uAC70: ${project}`);
       }
     } catch (e) {
       console.warn(`\u26A0 git hook \uC815\uB9AC \uC2E4\uD328 (${project}): ${e}`);

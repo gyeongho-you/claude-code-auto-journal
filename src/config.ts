@@ -6,6 +6,8 @@ import { Config, FileEditEntry, GitHookEntry, RunHistoryEntry } from './types';
 export const DATA_DIR = path.join(os.homedir(), '.claude', 'daily-journal');
 export const PLUGIN_DIR = path.join(os.homedir(), '.claude', 'plugins', 'daily-journal');
 export const GIT_HOOKS_PATH = path.join(DATA_DIR, 'git-hooks.json');
+export const GIT_HOOK_MARKER_BEGIN = '# BEGIN daily-journal';
+export const GIT_HOOK_MARKER_END = '# END daily-journal';
 export const SESSION_EDITS_DIR = path.join(os.homedir(), '.claude', 'session-edits');
 const DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, 'data');
 
