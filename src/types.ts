@@ -43,8 +43,7 @@ export type FileEditEntry = {
   tool: 'Edit' | 'Write';
   file: string;
   before?: string;     // Edit: 수정 전
-  after?: string;      // Edit: 수정 후
-  historyRef?: string; // Write: file-history 경로
+  after?: string;      // Edit: 수정 후 / Write: 파일 전체 내용
 };
 
 export type HistoryEntry = {

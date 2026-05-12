@@ -69,7 +69,7 @@ function main() {
       after: tool_input.new_string ?? ""
     });
   } else if (tool_name === "Write") {
-    state.edits.push({ tool: "Write", file: filePath });
+    state.edits.push({ tool: "Write", file: filePath, after: tool_input.content ?? "" });
   }
   writeState(session_id, state);
 }

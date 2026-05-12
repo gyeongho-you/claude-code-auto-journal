@@ -315,6 +315,9 @@ function setup() {
     console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70. (daily-journal.schedule.use: false)");
     unregisterTaskScheduler();
   }
+  if (!config.gitCommit.use) {
+    removeGitHooks();
+  }
   try {
     (0, import_child_process.execSync)("npm link", { cwd: PLUGIN_DIR, stdio: "ignore" });
     console.log("\u2713 CLI \uC804\uC5ED \uB4F1\uB85D \uC644\uB8CC (dj \uBA85\uB839\uC5B4 \uC0AC\uC6A9 \uAC00\uB2A5)");
