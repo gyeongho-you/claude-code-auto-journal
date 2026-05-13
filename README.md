@@ -189,7 +189,7 @@ Claude 세션이 끝날 때 마지막 응답을 요약할 때 사용됩니다.
 | `journal.output_dir` | `""` | 일지 저장 경로. 비워두면 `~/.claude/daily-journal/data` 사용                                                                                          |
 | `focus.use` | `false` | `true`로 설정하면 `focus.files`에 지정된 프로젝트의 대화만 기록. 나머지 프로젝트는 스킵 |
 | `focus.files` | `[]` | 기록할 프로젝트 이름 목록. `focus.use: true`일 때만 적용. 프로젝트 이름은 작업 디렉토리의 마지막 폴더명 기준 (예: `/Users/me/projects/my-app` → `"my-app"`) |
-| `gitCommit.use` | `true` | git commit 기록을 일지에 포함할지 여부. `true`이면 Claude 첫 실행 시 해당 프로젝트에 git post-commit hook 자동 등록 — 이후 Claude 없이 한 커밋도 커밋 메시지 기준으로 일지에 반영되며, 실제 diff는 일지 생성 후 JS가 `git show`로 가져와 `<details>` 블록으로 삽입 (Claude 호출 없음) |
+| `gitCommit.use` | `true` | git commit 기록을 일지에 포함할지 여부. `true`이면 Claude 첫 실행 시 해당 프로젝트에 git post-commit hook 자동 등록 — 이후 Claude 없이 한 커밋도 커밋 메시지 기준으로 일지에 반영되며, 실제 diff는 일지 생성 후 JS가 `git show`로 가져와 `<details>` 블록으로 삽입 (Claude 호출 없음). `false`로 변경 후 setup 재실행 시 등록된 hook 자동 제거. **변경 시 setup 재실행 필요** |
 | `cleanup` | `false` | 일지 생성 후 히스토리 파일 삭제 여부. `true`로 설정하면 `.jsonl` 파일 삭제 (당일 생성된 history는 삭제 안 됨)                                                               |
 | `save` | `true` | 대화 내용 저장 여부. `false`로 설정하면 stop-hook이 아무것도 기록하지 않음                                                                                        |
 | `timeZone` | `"Asia/Seoul"` | 날짜/시간 기준 타임존. [IANA 타임존](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) 형식 사용 (예: `"America/New_York"`). 유효하지 않으면 기본값으로 폴백 |
@@ -227,7 +227,7 @@ node "/path/to/git-commit-hook.js"
 파일을 수정하거나 새로 생성할 때마다 해당 내용이 대화 기록에 함께 저장됩니다.
 
 - **Edit** — 수정 전/후 내용(`old_string` / `new_string`) 저장
-- **Write** — 신규 파일 경로와 `~/.claude/file-history/`의 해당 버전 파일 경로 저장
+- **Write** — 신규 파일 전체 내용(`content`) 저장
 
 `dj view`에서 대화 내용을 보는 중 `f` 키를 누르면 해당 대화에서 수정된 파일 목록과 diff를 확인할 수 있습니다.
 

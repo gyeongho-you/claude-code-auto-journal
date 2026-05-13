@@ -165,13 +165,7 @@ export function cmdView(): void {
         (edit.before ?? '').split('\n').forEach(l => lines.push(`\x1b[31m- ${l}\x1b[0m`));
         (edit.after ?? '').split('\n').forEach(l => lines.push(`\x1b[32m+ ${l}\x1b[0m`));
       } else if (edit.tool === 'Write') {
-        if (edit.historyRef && fs.existsSync(edit.historyRef)) {
-          fs.readFileSync(edit.historyRef, 'utf-8')
-            .split('\n')
-            .forEach(l => lines.push(`\x1b[32m+ ${l}\x1b[0m`));
-        } else {
-          lines.push('  (file-history 참조를 찾을 수 없습니다)');
-        }
+        (edit.after ?? '').split('\n').forEach(l => lines.push(`\x1b[32m+ ${l}\x1b[0m`));
       }
       return lines;
     });

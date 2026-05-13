@@ -943,11 +943,7 @@ function cmdView() {
         (edit.before ?? "").split("\n").forEach((l) => lines.push(`\x1B[31m- ${l}\x1B[0m`));
         (edit.after ?? "").split("\n").forEach((l) => lines.push(`\x1B[32m+ ${l}\x1B[0m`));
       } else if (edit.tool === "Write") {
-        if (edit.historyRef && fs5.existsSync(edit.historyRef)) {
-          fs5.readFileSync(edit.historyRef, "utf-8").split("\n").forEach((l) => lines.push(`\x1B[32m+ ${l}\x1B[0m`));
-        } else {
-          lines.push("  (file-history \uCC38\uC870\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4)");
-        }
+        (edit.after ?? "").split("\n").forEach((l) => lines.push(`\x1B[32m+ ${l}\x1B[0m`));
       }
       return lines;
     });
