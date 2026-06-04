@@ -842,6 +842,15 @@ function cmdView() {
   let fileEditContentLines = [];
   let gitCommitFileNames = [];
   let gitShowRawSections = [];
+  let searchMode = false;
+  let searchActive = false;
+  let searchQuery = "";
+  let searchTerm = "";
+  let filteredIndices = [];
+  let filteredPos = 0;
+  function nk(k) {
+    return k.toLowerCase();
+  }
   function getTermSize() {
     return {
       rows: process.stdout.rows || 24,
@@ -859,13 +868,61 @@ function cmdView() {
     let w = 0;
     for (const ch of s) {
       const cp = ch.codePointAt(0) ?? 0;
-      if (cp >= 4352 && cp <= 4447 || cp >= 11904 && cp <= 12350 || cp >= 12352 && cp <= 13311 || cp >= 13312 && cp <= 19903 || cp >= 19968 && cp <= 42191 || cp >= 44032 && cp <= 55295 || cp >= 63744 && cp <= 64255 || cp >= 65281 && cp <= 65376 || cp >= 65504 && cp <= 65510) {
+      if (cp >= 65024 && cp <= 65039) continue;
+      if (cp === 8205) continue;
+      if (
+        // 한글
+        cp >= 4352 && cp <= 4447 || cp >= 44032 && cp <= 55295 || // CJK
+        cp >= 11904 && cp <= 12350 || cp >= 12352 && cp <= 13311 || cp >= 13312 && cp <= 19903 || cp >= 19968 && cp <= 42191 || cp >= 63744 && cp <= 64255 || cp >= 65281 && cp <= 65376 || cp >= 65504 && cp <= 65510 || // 이모지 (🔴🎯 등 — 보조 평면 이모지는 확실히 2칸)
+        cp >= 127744 && cp <= 129791
+      ) {
         w += 2;
       } else {
         w += 1;
       }
     }
     return w;
+  }
+  function highlightText(text, term) {
+    if (!term) return text;
+    const lower = text.toLowerCase();
+    const lowerTerm = term.toLowerCase();
+    let result = "";
+    let i = 0;
+    while (i < text.length) {
+      const idx = lower.indexOf(lowerTerm, i);
+      if (idx === -1) {
+        result += text.slice(i);
+        break;
+      }
+      result += text.slice(i, idx);
+      result += `\x1B[43m\x1B[30m${text.slice(idx, idx + term.length)}\x1B[0m`;
+      i = idx + term.length;
+    }
+    return result;
+  }
+  function truncateLine(text, cols) {
+    let result = "";
+    let w = 0;
+    let i = 0;
+    while (i < text.length) {
+      if (text[i] === "\x1B" && text[i + 1] === "[") {
+        const end = text.indexOf("m", i + 2);
+        if (end !== -1) {
+          result += text.slice(i, end + 1);
+          i = end + 1;
+          continue;
+        }
+      }
+      const cp = text.codePointAt(i) ?? 0;
+      const ch = cp > 65535 ? text.slice(i, i + 2) : text[i];
+      const chw = dispWidth(ch);
+      if (w + chw > cols - 1) return result + "\u2026";
+      result += ch;
+      w += chw;
+      i += ch.length;
+    }
+    return result;
   }
   function wrapLine(line, cols) {
     if (dispWidth(line) <= cols) return [line];
@@ -948,11 +1005,27 @@ function cmdView() {
       return lines;
     });
   }
+  function applySearch(term) {
+    const lower = term.toLowerCase();
+    filteredIndices = histories.reduce((acc, h, i) => {
+      if (h.prompt.toLowerCase().includes(lower) || (h.answer ?? "").toLowerCase().includes(lower)) {
+        acc.push(i);
+      }
+      return acc;
+    }, []);
+    filteredPos = 0;
+    if (filteredIndices.length > 0) {
+      historyIdx = filteredIndices[0];
+      scrollOffset = 0;
+    }
+    buildContentLines(getTermSize().cols);
+  }
   function buildContentLines(cols) {
     const innerCols = cols - 2;
     contentLines = histories.map((h) => {
       const lines = [];
-      const addText = (text) => text.split("\n").forEach((l) => wrapLine(l, innerCols).forEach((w) => lines.push(`  ${w}`)));
+      const applyHl = (w) => searchActive && searchTerm ? highlightText(w, searchTerm) : w;
+      const addText = (text) => text.split("\n").forEach((l) => wrapLine(l, innerCols).forEach((w) => lines.push(`  ${applyHl(w)}`)));
       if (h.source === "git-commit") {
         lines.push(`\x1B[1;36m[ \uCEE4\uBC0B \uBA54\uC2DC\uC9C0 ]\x1B[0m`);
         addText(h.prompt);
@@ -1059,8 +1132,7 @@ function cmdView() {
         return;
       }
       const filename = gitCommitFileNames[fileEditIdx] || "";
-      process.stdout.write(`  ${filename}  \x1B[2m[${h?.answer || ""}]\x1B[0m  (${fileEditIdx + 1} / ${fileEditContentLines.length})
-`);
+      process.stdout.write(truncateLine(`  ${filename}  \x1B[2m[${h?.answer || ""}]\x1B[0m  (${fileEditIdx + 1} / ${fileEditContentLines.length})`, cols) + "\n");
       process.stdout.write("\u2500".repeat(cols) + "\n");
     } else {
       const edits = h?.fileEdits ?? [];
@@ -1083,16 +1155,15 @@ function cmdView() {
     for (let i = visible.length; i < contentHeight; i++) process.stdout.write("\n");
   }
   function renderContent(contentHeight, cols) {
-    const content = contentList[contentListIdx];
-    process.stdout.write(`  ${content}  (${contentListIdx + 1} / ${contentList.length})
-`);
-    process.stdout.write("\u2500".repeat(cols) + "\n");
+    const date = dates[dateIdx];
+    const breadcrumb = `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+    process.stdout.write(truncateLine(breadcrumb, cols) + "\n");
     const currentHistory = histories[historyIdx];
     const isGitCommit = currentHistory?.source === "git-commit";
     const hasFileEdits = !isGitCommit && !!currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
     let fileEditsHint = "";
     if (isGitCommit && currentHistory.answer) {
-      fileEditsHint = `  \x1B[33m[\uCEE4\uBC0B \uD574\uC2DC]\x1B[0m`;
+      fileEditsHint = `  \x1B[33m(\uCEE4\uBC0B \uD574\uC2DC)\x1B[0m`;
     } else if (hasFileEdits) {
       let editCount = 0;
       let writeCount = 0;
@@ -1104,10 +1175,21 @@ function cmdView() {
         editCount > 0 ? `\uC218\uC815\uD30C\uC77C ${editCount}\uAC74` : "",
         writeCount > 0 ? `\uC0DD\uC131\uD30C\uC77C ${writeCount}\uAC74` : ""
       ].filter(Boolean);
-      fileEditsHint = `  \x1B[33m[${parts.join(" \xB7 ")}]\x1B[0m`;
+      fileEditsHint = `  \x1B[33m(${parts.join(" \xB7 ")})\x1B[0m`;
     }
-    process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]${fileEditsHint}
-`);
+    const pageNum = searchActive ? filteredPos + 1 : historyIdx + 1;
+    const pageTotal = searchActive ? filteredIndices.length : contentLines.length;
+    const pageStr = searchActive && filteredIndices.length === 0 ? ` \u2699\uFE0F  [PAGE] -/-` : ` \u2699\uFE0F  [PAGE] ${pageNum}/${pageTotal}${fileEditsHint}`;
+    process.stdout.write(truncateLine(pageStr, cols) + "\n");
+    if (searchActive) {
+      const searchStr = ` \u{1F50D} [KEYWORD] \uAC80\uC0C9\uC5B4: "${searchTerm}"   \uACB0\uACFC: ${filteredIndices.length}\uAC74`;
+      process.stdout.write(truncateLine(searchStr, cols) + "\n");
+    }
+    process.stdout.write("\u2501".repeat(cols) + "\n");
+    if (searchActive && filteredIndices.length === 0) {
+      for (let i = 0; i < contentHeight; i++) process.stdout.write("\n");
+      return;
+    }
     const history = contentLines[historyIdx];
     const maxScroll = Math.max(0, history.length - contentHeight);
     if (scrollOffset > maxScroll) scrollOffset = maxScroll;
@@ -1121,27 +1203,24 @@ function cmdView() {
     const { rows, cols } = getTermSize();
     const date = dates[dateIdx];
     process.stdout.write("\x1B[H\x1B[2J");
-    process.stdout.write(`\uAE30\uB85D \uBCF4\uAE30
-`);
     if (deepCursor === 0) {
-      renderDateList(rows - 3);
-    } else {
-      const dateStr = `  ${date}  (${dateIdx + 1} / ${dates.length})`;
-      process.stdout.write(`\x1B[1m${dateStr}\x1B[0m
+      process.stdout.write(`\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]
 `);
-      if (deepCursor === 1) {
-        renderContentList(rows - 5, cols);
+      renderDateList(rows - 3);
+    } else if (deepCursor === 1) {
+      process.stdout.write(truncateLine(`\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date}  (${dateIdx + 1}/${dates.length})`, cols) + "\n");
+      renderContentList(rows - 4, cols);
+    } else {
+      if (showingFileEdits) {
+        process.stdout.write(truncateLine(`\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`, cols) + "\n");
+        renderFileEdits(rows - 5, cols);
       } else {
-        if (showingFileEdits) {
-          renderFileEdits(rows - 6, cols);
-        } else {
-          renderContent(rows - 7, cols);
-        }
+        renderContent(rows - (searchActive ? 6 : 5), cols);
       }
     }
     process.stdout.write("\u2500".repeat(cols) + "\n");
-    const hint = deepCursor === 2 ? showingFileEdits ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
-    process.stdout.write(`\x1B[2m${hint}\x1B[0m`);
+    const hint = deepCursor === 2 ? showingFileEdits ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
+    process.stdout.write(`\x1B[2m${truncateLine(hint, cols)}\x1B[0m`);
   }
   function exit() {
     process.stdin.setRawMode(false);
@@ -1162,10 +1241,33 @@ function cmdView() {
   process.stdin.on("data", (key) => {
     const { rows } = getTermSize();
     const ch0 = rows - 3;
-    const ch1 = rows - 5;
-    const ch2 = rows - 7;
-    const chFile = rows - 6;
-    if (key === "q" || key === "") {
+    const ch1 = rows - 4;
+    const ch2 = rows - (searchActive ? 6 : 5);
+    const chFile = rows - 5;
+    if (key === "") {
+      exit();
+      process.exit(0);
+    }
+    if (searchMode) {
+      if (key === "\r" || key === "\r\n") {
+        searchTerm = searchQuery;
+        searchMode = false;
+        searchActive = true;
+        applySearch(searchTerm);
+        render();
+      } else if (key === "\x1B") {
+        searchMode = false;
+        render();
+      } else if (key === "\x7F" || key === "\b") {
+        searchQuery = searchQuery.slice(0, -1);
+        render();
+      } else if (!key.startsWith("\x1B") && key !== "") {
+        searchQuery += key;
+        render();
+      }
+      return;
+    }
+    if (nk(key) === "q") {
       exit();
       process.exit(0);
     } else if (key === "\x1B[A") {
@@ -1230,6 +1332,13 @@ function cmdView() {
             fileEditScrollOffset = 0;
             render();
           }
+        } else if (searchActive) {
+          if (filteredPos < filteredIndices.length - 1) {
+            filteredPos++;
+            historyIdx = filteredIndices[filteredPos];
+            scrollOffset = 0;
+            render();
+          }
         } else {
           if (historyIdx < contentLines.length - 1) {
             historyIdx++;
@@ -1246,6 +1355,13 @@ function cmdView() {
             fileEditScrollOffset = 0;
             render();
           }
+        } else if (searchActive) {
+          if (filteredPos > 0) {
+            filteredPos--;
+            historyIdx = filteredIndices[filteredPos];
+            scrollOffset = 0;
+            render();
+          }
         } else {
           if (historyIdx > 0) {
             historyIdx--;
@@ -1254,7 +1370,11 @@ function cmdView() {
           }
         }
       }
-    } else if (key === "f" && deepCursor === 2) {
+    } else if (nk(key) === "s" && deepCursor === 2 && !showingFileEdits) {
+      searchMode = true;
+      searchQuery = "";
+      render();
+    } else if (nk(key) === "f" && deepCursor === 2) {
       if (showingFileEdits) {
         showingFileEdits = false;
       } else {
@@ -1274,6 +1394,9 @@ function cmdView() {
       } else if (deepCursor === 1) {
         loadContent();
         scrollOffset = 0;
+        historyIdx = 0;
+        searchMode = false;
+        searchActive = false;
         deepCursor++;
         render();
       }
@@ -1281,11 +1404,19 @@ function cmdView() {
       if (showingFileEdits) {
         showingFileEdits = false;
         render();
+      } else if (searchActive) {
+        searchActive = false;
+        historyIdx = 0;
+        scrollOffset = 0;
+        buildContentLines(getTermSize().cols);
+        render();
       } else if (deepCursor > 0) {
         deepCursor--;
         if (deepCursor === 1) {
           historyIdx = 0;
           scrollOffset = 0;
+          searchMode = false;
+          searchActive = false;
         }
         if (deepCursor === 0) {
           contentListIdx = 0;

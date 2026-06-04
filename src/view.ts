@@ -47,6 +47,16 @@ export function cmdView(): void {
   let fileEditContentLines: string[][] = [];
   let gitCommitFileNames: string[] = [];
   let gitShowRawSections: string[] = [];
+  let searchMode = false;
+  let searchActive = false;
+  let searchQuery = '';
+  let searchTerm = '';
+  let filteredIndices: number[] = [];
+  let filteredPos = 0;
+
+  function nk(k: string): string {
+    return k.toLowerCase();
+  }
 
   function getTermSize() {
     return {
@@ -62,21 +72,28 @@ export function cmdView(): void {
     } catch { /* ignore */ }
   }
 
-  // 한글 등 전각 문자는 터미널에서 2칸 차지
+  // 한글·CJK·이모지 등 전각 문자는 터미널에서 2칸 차지
   function dispWidth(s: string): number {
     let w = 0;
     for (const ch of s) {
       const cp = ch.codePointAt(0) ?? 0;
+      // 변형 선택자(Variation Selectors)는 너비 0
+      if (cp >= 0xFE00 && cp <= 0xFE0F) continue;
+      if (cp === 0x200D) continue; // Zero Width Joiner
       if (
+        // 한글
         (cp >= 0x1100 && cp <= 0x115F) ||
+        (cp >= 0xAC00 && cp <= 0xD7FF) ||
+        // CJK
         (cp >= 0x2E80 && cp <= 0x303E) ||
         (cp >= 0x3040 && cp <= 0x33FF) ||
         (cp >= 0x3400 && cp <= 0x4DBF) ||
         (cp >= 0x4E00 && cp <= 0xA4CF) ||
-        (cp >= 0xAC00 && cp <= 0xD7FF) ||
         (cp >= 0xF900 && cp <= 0xFAFF) ||
         (cp >= 0xFF01 && cp <= 0xFF60) ||
-        (cp >= 0xFFE0 && cp <= 0xFFE6)
+        (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+        // 이모지 (🔴🎯 등 — 보조 평면 이모지는 확실히 2칸)
+        (cp >= 0x1F300 && cp <= 0x1FAFF)
       ) {
         w += 2;
       } else {
@@ -84,6 +101,43 @@ export function cmdView(): void {
       }
     }
     return w;
+  }
+
+  function highlightText(text: string, term: string): string {
+    if (!term) return text;
+    const lower = text.toLowerCase();
+    const lowerTerm = term.toLowerCase();
+    let result = '';
+    let i = 0;
+    while (i < text.length) {
+      const idx = lower.indexOf(lowerTerm, i);
+      if (idx === -1) { result += text.slice(i); break; }
+      result += text.slice(i, idx);
+      result += `\x1b[43m\x1b[30m${text.slice(idx, idx + term.length)}\x1b[0m`;
+      i = idx + term.length;
+    }
+    return result;
+  }
+
+  function truncateLine(text: string, cols: number): string {
+    let result = '';
+    let w = 0;
+    let i = 0;
+    while (i < text.length) {
+      // ANSI 이스케이프 시퀀스는 너비 0으로 그대로 통과
+      if (text[i] === '\x1b' && text[i + 1] === '[') {
+        const end = text.indexOf('m', i + 2);
+        if (end !== -1) { result += text.slice(i, end + 1); i = end + 1; continue; }
+      }
+      const cp = text.codePointAt(i) ?? 0;
+      const ch = cp > 0xFFFF ? text.slice(i, i + 2) : text[i];
+      const chw = dispWidth(ch);
+      if (w + chw > cols - 1) return result + '…';
+      result += ch;
+      w += chw;
+      i += ch.length;
+    }
+    return result;
   }
 
   function wrapLine(line: string, cols: number): string[] {
@@ -171,12 +225,32 @@ export function cmdView(): void {
     });
   }
 
+  function applySearch(term: string): void {
+    const lower = term.toLowerCase();
+    filteredIndices = histories.reduce<number[]>((acc, h, i) => {
+      if (
+        h.prompt.toLowerCase().includes(lower) ||
+        (h.answer ?? '').toLowerCase().includes(lower)
+      ) {
+        acc.push(i);
+      }
+      return acc;
+    }, []);
+    filteredPos = 0;
+    if (filteredIndices.length > 0) {
+      historyIdx = filteredIndices[0];
+      scrollOffset = 0;
+    }
+    buildContentLines(getTermSize().cols);
+  }
+
   function buildContentLines(cols: number): void {
     const innerCols = cols - 2;
     contentLines = histories.map(h => {
       const lines: string[] = [];
+      const applyHl = (w: string) => searchActive && searchTerm ? highlightText(w, searchTerm) : w;
       const addText = (text: string) =>
-        text.split('\n').forEach(l => wrapLine(l, innerCols).forEach(w => lines.push(`  ${w}`)));
+        text.split('\n').forEach(l => wrapLine(l, innerCols).forEach(w => lines.push(`  ${applyHl(w)}`)));
 
       if (h.source === 'git-commit') {
         lines.push(`\x1b[1;36m[ 커밋 메시지 ]\x1b[0m`);
@@ -281,7 +355,7 @@ export function cmdView(): void {
         return;
       }
       const filename = gitCommitFileNames[fileEditIdx] || '';
-      process.stdout.write(`  ${filename}  \x1b[2m[${h?.answer || ''}]\x1b[0m  (${fileEditIdx + 1} / ${fileEditContentLines.length})\n`);
+      process.stdout.write(truncateLine(`  ${filename}  \x1b[2m[${h?.answer || ''}]\x1b[0m  (${fileEditIdx + 1} / ${fileEditContentLines.length})`, cols) + '\n');
       process.stdout.write('─'.repeat(cols) + '\n');
     } else {
       const edits = h?.fileEdits ?? [];
@@ -306,35 +380,55 @@ export function cmdView(): void {
   }
 
   function renderContent(contentHeight: number, cols: number): void {
-    const content = contentList[contentListIdx];
-    process.stdout.write(`  ${content}  (${contentListIdx + 1} / ${contentList.length})\n`);
-    process.stdout.write('─'.repeat(cols) + '\n');
+    // 브레드크럼 헤더
+    const date = dates[dateIdx];
+    const breadcrumb = `📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+    process.stdout.write(truncateLine(breadcrumb, cols) + '\n');
 
+    // 페이지 정보
     const currentHistory = histories[historyIdx];
     const isGitCommit = currentHistory?.source === 'git-commit';
     const hasFileEdits = !isGitCommit && !!currentHistory?.fileEdits && currentHistory.fileEdits.length > 0;
 
     let fileEditsHint = '';
-
     if (isGitCommit && currentHistory.answer) {
-      fileEditsHint = `  \x1b[33m[커밋 해시]\x1b[0m`;
+      fileEditsHint = `  \x1b[33m(커밋 해시)\x1b[0m`;
     } else if (hasFileEdits) {
       let editCount = 0;
       let writeCount = 0;
       currentHistory.fileEdits?.forEach(edit => {
-        if(edit.tool === 'Write') writeCount++;
+        if (edit.tool === 'Write') writeCount++;
         else editCount++;
       });
       const parts = [
         editCount > 0 ? `수정파일 ${editCount}건` : '',
         writeCount > 0 ? `생성파일 ${writeCount}건` : '',
       ].filter(Boolean);
-      fileEditsHint = `  \x1b[33m[${parts.join(' · ')}]\x1b[0m`;
+      fileEditsHint = `  \x1b[33m(${parts.join(' · ')})\x1b[0m`;
     }
-    process.stdout.write(`  history page [${historyIdx + 1} / ${contentLines.length}]${fileEditsHint}\n`);
+
+    const pageNum = searchActive ? filteredPos + 1 : historyIdx + 1;
+    const pageTotal = searchActive ? filteredIndices.length : contentLines.length;
+    const pageStr = (searchActive && filteredIndices.length === 0)
+      ? ` ⚙️  [PAGE] -/-`
+      : ` ⚙️  [PAGE] ${pageNum}/${pageTotal}${fileEditsHint}`;
+    process.stdout.write(truncateLine(pageStr, cols) + '\n');
+
+    // 검색 정보 (검색 중일 때만)
+    if (searchActive) {
+      const searchStr = ` 🔍 [KEYWORD] 검색어: "${searchTerm}"   결과: ${filteredIndices.length}건`;
+      process.stdout.write(truncateLine(searchStr, cols) + '\n');
+    }
+
+    // 구분선
+    process.stdout.write('━'.repeat(cols) + '\n');
+
+    if (searchActive && filteredIndices.length === 0) {
+      for (let i = 0; i < contentHeight; i++) process.stdout.write('\n');
+      return;
+    }
 
     const history = contentLines[historyIdx];
-
     const maxScroll = Math.max(0, history.length - contentHeight);
     if (scrollOffset > maxScroll) scrollOffset = maxScroll;
 
@@ -351,27 +445,22 @@ export function cmdView(): void {
 
     process.stdout.write('\x1b[H\x1b[2J'); // 화면 클리어 후 커서 맨 위로
 
-    // 헤더
-    process.stdout.write(`기록 보기\n`);
-
     if (deepCursor === 0) {
       // 고정: 헤더1 + 푸터2 = 3
+      process.stdout.write(`📂 [기록 검색]\n`);
       renderDateList(rows - 3);
+    } else if (deepCursor === 1) {
+      // 고정: 헤더1 + separator1(renderContentList 내부) + 푸터2 = 4
+      process.stdout.write(truncateLine(`📂 [기록 검색]  ${date}  (${dateIdx + 1}/${dates.length})`, cols) + '\n');
+      renderContentList(rows - 4, cols);
     } else {
-      const dateStr = `  ${date}  (${dateIdx + 1} / ${dates.length})`;
-      process.stdout.write(`\x1b[1m${dateStr}\x1b[0m\n`);
-
-      if (deepCursor === 1) {
-        // 고정: 헤더2 + separator1(renderContentList 내부) + 푸터2 = 5
-        renderContentList(rows - 5, cols);
+      if (showingFileEdits) {
+        // 고정: 헤더1 + filename1 + separator1 + 푸터2 = 5
+        process.stdout.write(truncateLine(`📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`, cols) + '\n');
+        renderFileEdits(rows - 5, cols);
       } else {
-        if (showingFileEdits) {
-          // 고정: 헤더2 + filename1 + separator1 + 푸터2 = 6
-          renderFileEdits(rows - 6, cols);
-        } else {
-          // 고정: 헤더2 + filename1 + historyPage1 + separator1 + 푸터2 = 7
-          renderContent(rows - 7, cols);
-        }
+        // 고정: breadcrumb1 + page1 + (search1?) + separator1 + 푸터2 = 5 or 6
+        renderContent(rows - (searchActive ? 6 : 5), cols);
       }
     }
 
@@ -380,9 +469,13 @@ export function cmdView(): void {
     const hint = deepCursor === 2
       ? (showingFileEdits
           ? `▲▼ 스크롤  /  ◀ ▶ 파일 이동  /  f·esc 대화로 돌아가기  /  q 종료`
-          : `▲▼ 스크롤  /  ◀ ▶ history 이동  /  f 수정파일 보기  /  esc 뒤로가기  /  q 종료`)
+          : searchMode
+            ? `검색: ${searchQuery}_`
+            : searchActive
+              ? `▲▼ 스크롤  /  ◀ ▶ 이동  /  f 수정파일  /  s 재검색  /  esc 검색해제  /  q 종료`
+              : `▲▼ 스크롤  /  ◀ ▶ history 이동  /  f 수정파일 보기  /  s 검색  /  esc 뒤로가기  /  q 종료`)
       : `▲▼ 선택 이동  /  enter 선택  /  esc 뒤로가기  /  q 종료`;
-    process.stdout.write(`\x1b[2m${hint}\x1b[0m`);
+    process.stdout.write(`\x1b[2m${truncateLine(hint, cols)}\x1b[0m`);
   }
 
   function exit(): void {
@@ -411,11 +504,37 @@ export function cmdView(): void {
     const { rows } = getTermSize();
     // deepCursor별 실제 콘텐츠 높이 (render()와 동일 계산)
     const ch0 = rows - 3;
-    const ch1 = rows - 5;
-    const ch2 = rows - 7;
-    const chFile = rows - 6; // renderFileEdits 콘텐츠 높이
+    const ch1 = rows - 4;
+    const ch2 = rows - (searchActive ? 6 : 5);
+    const chFile = rows - 5;
 
-    if (key === 'q' || key === '\x03') { // q 또는 Ctrl+C
+    if (key === '\x03') { // Ctrl+C는 항상 종료
+      exit();
+      process.exit(0);
+    }
+
+    // 검색 입력 모드
+    if (searchMode) {
+      if (key === '\r' || key === '\r\n') {
+        searchTerm = searchQuery;
+        searchMode = false;
+        searchActive = true;
+        applySearch(searchTerm);
+        render();
+      } else if (key === '\x1b') {
+        searchMode = false;
+        render();
+      } else if (key === '\x7f' || key === '\b') {
+        searchQuery = searchQuery.slice(0, -1);
+        render();
+      } else if (!key.startsWith('\x1b') && key !== '\x03') {
+        searchQuery += key;
+        render();
+      }
+      return;
+    }
+
+    if (nk(key) === 'q') { // q 종료
       exit();
       process.exit(0);
     } else if (key === '\x1b[A') { // 위
@@ -465,6 +584,8 @@ export function cmdView(): void {
       if (deepCursor === 2) {
         if (showingFileEdits) {
           if (fileEditIdx < fileEditContentLines.length - 1) { fileEditIdx++; fileEditScrollOffset = 0; render(); }
+        } else if (searchActive) {
+          if (filteredPos < filteredIndices.length - 1) { filteredPos++; historyIdx = filteredIndices[filteredPos]; scrollOffset = 0; render(); }
         } else {
           if (historyIdx < contentLines.length - 1) { historyIdx++; scrollOffset = 0; render(); }
         }
@@ -473,11 +594,17 @@ export function cmdView(): void {
       if (deepCursor === 2) {
         if (showingFileEdits) {
           if (fileEditIdx > 0) { fileEditIdx--; fileEditScrollOffset = 0; render(); }
+        } else if (searchActive) {
+          if (filteredPos > 0) { filteredPos--; historyIdx = filteredIndices[filteredPos]; scrollOffset = 0; render(); }
         } else {
           if (historyIdx > 0) { historyIdx--; scrollOffset = 0; render(); }
         }
       }
-    } else if (key === 'f' && deepCursor === 2) {
+    } else if (nk(key) === 's' && deepCursor === 2 && !showingFileEdits) {
+      searchMode = true;
+      searchQuery = '';
+      render();
+    } else if (nk(key) === 'f' && deepCursor === 2) {
       if (showingFileEdits) {
         showingFileEdits = false;
       } else {
@@ -497,6 +624,9 @@ export function cmdView(): void {
       } else if (deepCursor === 1) {
         loadContent();
         scrollOffset = 0;
+        historyIdx = 0;
+        searchMode = false;
+        searchActive = false;
         deepCursor++;
         render();
       }
@@ -504,9 +634,15 @@ export function cmdView(): void {
       if (showingFileEdits) {
         showingFileEdits = false;
         render();
+      } else if (searchActive) {
+        searchActive = false;
+        historyIdx = 0;
+        scrollOffset = 0;
+        buildContentLines(getTermSize().cols);
+        render();
       } else if (deepCursor > 0) {
         deepCursor--;
-        if (deepCursor === 1) { historyIdx = 0; scrollOffset = 0; }
+        if (deepCursor === 1) { historyIdx = 0; scrollOffset = 0; searchMode = false; searchActive = false; }
         if (deepCursor === 0) { contentListIdx = 0; contentListOffset = 0; }
         render();
       }
