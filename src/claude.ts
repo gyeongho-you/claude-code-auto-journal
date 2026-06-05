@@ -18,6 +18,7 @@ export function callClaude(input: string, model: ClaudeModel) : SpawnSyncReturns
     const env = { ...process.env };
     delete env.CLAUDECODE;
     env.DAILY_JOURNAL_RUNNING = '1'; // stop-hook 재진입 방지
+    env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = '1';
 
     const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
 
