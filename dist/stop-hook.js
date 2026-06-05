@@ -220,8 +220,10 @@ function callClaude(input, model) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
+  env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  const result = (0, import_child_process.spawnSync)("claude", ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text", "--mcp-config", getEmptyMcpConfigPath(), "--strict-mcp-config"], {
+  const claudeCmd = process.platform === "win32" ? "chcp 65001 >nul 2>&1 && claude" : "claude";
+  const result = (0, import_child_process.spawnSync)(claudeCmd, ["--print", "--model", claudeModel, "--allowedTools", "none", "--output-format", "text", "--mcp-config", getEmptyMcpConfigPath(), "--strict-mcp-config"], {
     input,
     encoding: "utf-8",
     timeout: 18e4,

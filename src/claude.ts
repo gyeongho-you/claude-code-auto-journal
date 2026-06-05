@@ -22,7 +22,9 @@ export function callClaude(input: string, model: ClaudeModel) : SpawnSyncReturns
 
     const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
 
-    const result = spawnSync('claude', ['--print', '--model', claudeModel, '--allowedTools', 'none', '--output-format', 'text', '--mcp-config', getEmptyMcpConfigPath(), '--strict-mcp-config'], {
+    const claudeCmd = process.platform === 'win32' ? 'chcp 65001 >nul 2>&1 && claude' : 'claude';
+
+    const result = spawnSync(claudeCmd, ['--print', '--model', claudeModel, '--allowedTools', 'none', '--output-format', 'text', '--mcp-config', getEmptyMcpConfigPath(), '--strict-mcp-config'], {
         input,
         encoding: 'utf-8',
         timeout: 180000,
