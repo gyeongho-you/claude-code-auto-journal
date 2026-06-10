@@ -1181,7 +1181,10 @@ function cmdView() {
     }
     const pageNum = searchActive ? filteredPos + 1 : historyIdx + 1;
     const pageTotal = searchActive ? filteredIndices.length : contentLines.length;
-    const pageStr = searchActive && filteredIndices.length === 0 ? ` \u2699\uFE0F  [PAGE] -/-` : ` \u2699\uFE0F  [PAGE] ${pageNum}/${pageTotal}${fileEditsHint}`;
+    const hasNoResult = searchActive && filteredIndices.length === 0;
+    const timeHM = !hasNoResult ? (currentHistory?.time ?? "").split(" ")[1] : null;
+    const timePart = timeHM ? `  \xB7  \u{1F552} ${timeHM}` : "";
+    const pageStr = hasNoResult ? ` \u2699\uFE0F  [PAGE] -/-` : ` \u2699\uFE0F  [PAGE] ${pageNum}/${pageTotal}${timePart}${fileEditsHint}`;
     process.stdout.write(truncateLine(pageStr, cols) + "\n");
     if (searchActive) {
       const searchStr = ` \u{1F50D} [KEYWORD] \uAC80\uC0C9\uC5B4: "${searchTerm}"   \uACB0\uACFC: ${filteredIndices.length}\uAC74`;

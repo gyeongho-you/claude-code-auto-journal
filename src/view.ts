@@ -409,9 +409,12 @@ export function cmdView(): void {
 
     const pageNum = searchActive ? filteredPos + 1 : historyIdx + 1;
     const pageTotal = searchActive ? filteredIndices.length : contentLines.length;
-    const pageStr = (searchActive && filteredIndices.length === 0)
+    const hasNoResult = searchActive && filteredIndices.length === 0;
+    const timeHM = !hasNoResult ? (currentHistory?.time ?? '').split(' ')[1] : null;
+    const timePart = timeHM ? `  ·  🕒 ${timeHM}` : '';
+    const pageStr = hasNoResult
       ? ` ⚙️  [PAGE] -/-`
-      : ` ⚙️  [PAGE] ${pageNum}/${pageTotal}${fileEditsHint}`;
+      : ` ⚙️  [PAGE] ${pageNum}/${pageTotal}${timePart}${fileEditsHint}`;
     process.stdout.write(truncateLine(pageStr, cols) + '\n');
 
     // 검색 정보 (검색 중일 때만)
