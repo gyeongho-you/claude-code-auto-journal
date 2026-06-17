@@ -36,7 +36,7 @@ __export(cli_exports, {
 module.exports = __toCommonJS(cli_exports);
 var fs6 = __toESM(require("fs"));
 var path6 = __toESM(require("path"));
-var os4 = __toESM(require("os"));
+var os5 = __toESM(require("os"));
 var import_child_process5 = require("child_process");
 
 // src/config.ts
@@ -812,6 +812,7 @@ if (isDirectRun2) {
 // src/view.ts
 var fs5 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
+var os4 = __toESM(require("os"));
 var import_child_process4 = require("child_process");
 function cmdView() {
   const config = loadConfig();
@@ -850,8 +851,50 @@ function cmdView() {
   let searchTerm = "";
   let filteredIndices = [];
   let filteredPos = 0;
+  let copyMessage = "";
+  let copyMessageTimer = null;
+  let pendingChord = "";
   function nk(k) {
     return k.toLowerCase();
+  }
+  function stripAnsi(str) {
+    return str.replace(/\x1b\[[0-9;]*m/g, "");
+  }
+  function copyToClipboard(text) {
+    try {
+      const tmpPath = path5.join(os4.tmpdir(), "_journal_clipboard.txt");
+      fs5.writeFileSync(tmpPath, text, "utf8");
+      (0, import_child_process4.execSync)(`powershell -command "Get-Content -Path '${tmpPath}' -Encoding UTF8 -Raw | Set-Clipboard"`, { encoding: "utf8" });
+      try {
+        fs5.unlinkSync(tmpPath);
+      } catch {
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function showCopyFeedback(success) {
+    copyMessage = success ? "\u2713 \uBCF5\uC0AC\uB428!" : "\u2717 \uBCF5\uC0AC \uC2E4\uD328";
+    render();
+    if (copyMessageTimer) clearTimeout(copyMessageTimer);
+    copyMessageTimer = setTimeout(() => {
+      copyMessage = "";
+      render();
+    }, 1500);
+  }
+  function copyByDiffMode(mode) {
+    const entry = fileEditContentLines[fileEditIdx];
+    if (!entry) {
+      showCopyFeedback(false);
+      return;
+    }
+    const lines = mode === "before" ? entry.before : entry.after;
+    if (lines.length === 0) {
+      showCopyFeedback(false);
+      return;
+    }
+    showCopyFeedback(copyToClipboard(lines.join("\n")));
   }
   function getTermSize() {
     return {
@@ -946,9 +989,10 @@ function cmdView() {
     return result;
   }
   function formatGitCommitSections(cols) {
+    const skipHeader = /^(diff |index |new file|deleted file|old mode|new mode|Binary |\+\+\+|---)/;
     fileEditContentLines = gitShowRawSections.map((section) => {
       const lines = section.split("\n");
-      return lines.slice(1).flatMap((l) => {
+      const display = lines.slice(1).flatMap((l) => {
         if (l.startsWith("+++") || l.startsWith("---")) return wrapLine(l, cols).map((w) => `\x1B[2m${w}\x1B[0m`);
         if (l.startsWith("+")) return wrapLine(l, cols).map((w) => `\x1B[32m${w}\x1B[0m`);
         if (l.startsWith("-")) return wrapLine(l, cols).map((w) => `\x1B[31m${w}\x1B[0m`);
@@ -958,6 +1002,9 @@ function cmdView() {
         }
         return wrapLine(`  ${l}`, cols);
       });
+      const before = lines.filter((l) => !skipHeader.test(l) && !l.startsWith("@@") && !l.startsWith("+")).map((l) => l.startsWith("-") ? l.slice(1) : l.startsWith(" ") ? l.slice(1) : l);
+      const after = lines.filter((l) => !skipHeader.test(l) && !l.startsWith("@@") && !l.startsWith("-")).map((l) => l.startsWith("+") ? l.slice(1) : l.startsWith(" ") ? l.slice(1) : l);
+      return { display, before, after };
     });
   }
   function buildFileEditLines(hIdx) {
@@ -976,7 +1023,7 @@ function cmdView() {
         const parts = output.split(/^diff --git /m);
         const fileSections = parts.slice(1);
         if (fileSections.length === 0) {
-          fileEditContentLines = [[`  (\uBCC0\uACBD \uD30C\uC77C \uC5C6\uC74C)`]];
+          fileEditContentLines = [{ display: [`  (\uBCC0\uACBD \uD30C\uC77C \uC5C6\uC74C)`], before: [], after: [] }];
           gitCommitFileNames = ["(no diff)"];
           return;
         }
@@ -987,7 +1034,7 @@ function cmdView() {
         });
         formatGitCommitSections(getTermSize().cols);
       } catch {
-        fileEditContentLines = [[`  git show ${hash} \uC2E4\uD589 \uC2E4\uD328`]];
+        fileEditContentLines = [{ display: [`  git show ${hash} \uC2E4\uD589 \uC2E4\uD328`], before: [], after: [] }];
         gitCommitFileNames = ["\uC624\uB958"];
       }
       return;
@@ -996,15 +1043,18 @@ function cmdView() {
       fileEditContentLines = [];
       return;
     }
+    const wrapCols = getTermSize().cols - 2;
     fileEditContentLines = h.fileEdits.map((edit) => {
-      const lines = [];
+      const display = [];
       if (edit.tool === "Edit") {
-        (edit.before ?? "").split("\n").forEach((l) => lines.push(`\x1B[31m- ${l}\x1B[0m`));
-        (edit.after ?? "").split("\n").forEach((l) => lines.push(`\x1B[32m+ ${l}\x1B[0m`));
+        (edit.before ?? "").split("\n").forEach((l) => wrapLine(l, wrapCols).forEach((w) => display.push(`\x1B[31m- ${w}\x1B[0m`)));
+        (edit.after ?? "").split("\n").forEach((l) => wrapLine(l, wrapCols).forEach((w) => display.push(`\x1B[32m+ ${w}\x1B[0m`)));
       } else if (edit.tool === "Write") {
-        (edit.after ?? "").split("\n").forEach((l) => lines.push(`\x1B[32m+ ${l}\x1B[0m`));
+        (edit.after ?? "").split("\n").forEach((l) => wrapLine(l, wrapCols).forEach((w) => display.push(`\x1B[32m+ ${w}\x1B[0m`)));
       }
-      return lines;
+      const before = (edit.before ?? "").split("\n");
+      const after = (edit.after ?? "").split("\n");
+      return { display, before, after };
     });
   }
   function applySearch(term) {
@@ -1149,10 +1199,11 @@ function cmdView() {
 `);
       process.stdout.write("\u2500".repeat(cols) + "\n");
     }
-    const lines = fileEditContentLines[fileEditIdx] ?? [];
-    const maxScroll = Math.max(0, lines.length - contentHeight);
+    const entry = fileEditContentLines[fileEditIdx];
+    const displayLines = pendingChord ? ((pendingChord === "z" ? entry?.before : entry?.after) ?? []).flatMap((l) => wrapLine(l, cols - 2).map((w) => `  ${w}`)) : entry?.display ?? [];
+    const maxScroll = Math.max(0, displayLines.length - contentHeight);
     if (fileEditScrollOffset > maxScroll) fileEditScrollOffset = maxScroll;
-    const visible = lines.slice(fileEditScrollOffset, fileEditScrollOffset + contentHeight);
+    const visible = displayLines.slice(fileEditScrollOffset, fileEditScrollOffset + contentHeight);
     visible.forEach((line) => process.stdout.write(line + "\n"));
     for (let i = visible.length; i < contentHeight; i++) process.stdout.write("\n");
   }
@@ -1224,8 +1275,9 @@ function cmdView() {
       }
     }
     process.stdout.write("\u2500".repeat(cols) + "\n");
-    const hint = deepCursor === 2 ? showingFileEdits ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
-    process.stdout.write(`\x1B[2m${truncateLine(hint, cols)}\x1B[0m`);
+    const hint = deepCursor === 2 ? showingFileEdits ? pendingChord ? `${pendingChord} \uB204\uB984 \u2192 c \uB85C ${pendingChord === "z" ? "\uBCC0\uACBD\uC804" : "\uBCC0\uACBD\uD6C4"} \uB0B4\uC6A9 \uBCF5\uC0AC / \uB2E4\uB978 \uD0A4\uB85C \uCDE8\uC18C` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  z+c \uBCC0\uACBD\uC804  /  x+c \uBCC0\uACBD\uD6C4  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
+    const hintWithMsg = copyMessage ? `${hint}  \x1B[0m\x1B[32m${copyMessage}\x1B[2m` : hint;
+    process.stdout.write(`\x1B[2m${truncateLine(hintWithMsg, cols)}\x1B[0m`);
   }
   function exit() {
     process.stdin.setRawMode(false);
@@ -1240,7 +1292,10 @@ function cmdView() {
   process.stdout.on("resize", () => {
     const { cols } = getTermSize();
     if (deepCursor === 2) buildContentLines(cols);
-    if (showingFileEdits && gitShowRawSections.length > 0) formatGitCommitSections(cols);
+    if (showingFileEdits) {
+      if (gitShowRawSections.length > 0) formatGitCommitSections(cols);
+      else buildFileEditLines(historyIdx);
+    }
     render();
   });
   process.stdin.on("data", (key) => {
@@ -1270,6 +1325,17 @@ function cmdView() {
         searchQuery += key;
         render();
       }
+      return;
+    }
+    if (pendingChord && nk(key) === "c" && deepCursor === 2 && showingFileEdits) {
+      const mode = pendingChord === "z" ? "before" : "after";
+      pendingChord = "";
+      copyByDiffMode(mode);
+      return;
+    }
+    if (pendingChord && nk(key) !== "z" && nk(key) !== "x") {
+      pendingChord = "";
+      render();
       return;
     }
     if (nk(key) === "q") {
@@ -1316,7 +1382,9 @@ function cmdView() {
         }
       } else if (deepCursor === 2) {
         if (showingFileEdits) {
-          const maxScroll = Math.max(0, (fileEditContentLines[fileEditIdx]?.length ?? 0) - chFile);
+          const _entry = fileEditContentLines[fileEditIdx];
+          const _len = pendingChord ? (pendingChord === "z" ? _entry?.before : _entry?.after)?.length ?? 0 : _entry?.display.length ?? 0;
+          const maxScroll = Math.max(0, _len - chFile);
           if (fileEditScrollOffset < maxScroll) {
             fileEditScrollOffset++;
             render();
@@ -1375,6 +1443,30 @@ function cmdView() {
           }
         }
       }
+    } else if (nk(key) === "c" && deepCursor === 2 && !showingFileEdits && !searchMode) {
+      const h = histories[historyIdx];
+      if (h) {
+        let textToCopy = "";
+        if (h.source === "git-commit") {
+          textToCopy = `[ \uCEE4\uBC0B \uBA54\uC2DC\uC9C0 ]
+${h.prompt}
+`;
+        } else {
+          textToCopy = `[ \uC9C8\uBB38 ]
+${h.prompt}
+
+[ \uC751\uB2F5 ]
+${h.answer ?? ""}
+
+[ \uC694\uC57D ]
+${h.summary}
+`;
+        }
+        showCopyFeedback(copyToClipboard(textToCopy));
+      }
+    } else if ((nk(key) === "z" || nk(key) === "x") && deepCursor === 2 && showingFileEdits) {
+      pendingChord = nk(key);
+      render();
     } else if (nk(key) === "s" && deepCursor === 2 && !showingFileEdits) {
       searchMode = true;
       searchQuery = "";
@@ -1560,7 +1652,7 @@ function cmdRetry() {
   console.log("\n\uC644\uB8CC\n");
 }
 function cmdUpdate() {
-  const PLUGIN_DIR2 = path6.join(os4.homedir(), ".claude", "plugins", "daily-journal");
+  const PLUGIN_DIR2 = path6.join(os5.homedir(), ".claude", "plugins", "daily-journal");
   console.log("\ndaily-journal \uC5C5\uB370\uC774\uD2B8 \uC911...\n");
   console.log("1. \uCD5C\uC2E0 \uCF54\uB4DC \uBC1B\uB294 \uC911 (git pull)...");
   try {

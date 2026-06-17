@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { execSync } from 'child_process';
 import {loadConfig, logError} from './config';
 import {HistoryEntry, RunHistoryEntry} from "./types";
@@ -44,7 +45,7 @@ export function cmdView(): void {
   let showingFileEdits = false;
   let fileEditIdx = 0;
   let fileEditScrollOffset = 0;
-  let fileEditContentLines: string[][] = [];
+  let fileEditContentLines: { display: string[], before: string[], after: string[] }[] = [];
   let gitCommitFileNames: string[] = [];
   let gitShowRawSections: string[] = [];
   let searchMode = false;
@@ -53,9 +54,46 @@ export function cmdView(): void {
   let searchTerm = '';
   let filteredIndices: number[] = [];
   let filteredPos = 0;
+  let copyMessage = '';
+  let copyMessageTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingChord = '';
 
   function nk(k: string): string {
     return k.toLowerCase();
+  }
+
+  function stripAnsi(str: string): string {
+    return str.replace(/\x1b\[[0-9;]*m/g, '');
+  }
+
+  function copyToClipboard(text: string): boolean {
+    try {
+      const tmpPath = path.join(os.tmpdir(), '_journal_clipboard.txt');
+      fs.writeFileSync(tmpPath, text, 'utf8');
+      execSync(`powershell -command "Get-Content -Path '${tmpPath}' -Encoding UTF8 -Raw | Set-Clipboard"`, { encoding: 'utf8' });
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function showCopyFeedback(success: boolean): void {
+    copyMessage = success ? '✓ 복사됨!' : '✗ 복사 실패';
+    render();
+    if (copyMessageTimer) clearTimeout(copyMessageTimer);
+    copyMessageTimer = setTimeout(() => {
+      copyMessage = '';
+      render();
+    }, 1500);
+  }
+
+  function copyByDiffMode(mode: 'before' | 'after'): void {
+    const entry = fileEditContentLines[fileEditIdx];
+    if (!entry) { showCopyFeedback(false); return; }
+    const lines = mode === 'before' ? entry.before : entry.after;
+    if (lines.length === 0) { showCopyFeedback(false); return; }
+    showCopyFeedback(copyToClipboard(lines.join('\n')));
   }
 
   function getTermSize() {
@@ -161,9 +199,10 @@ export function cmdView(): void {
   }
 
   function formatGitCommitSections(cols: number): void {
+    const skipHeader = /^(diff |index |new file|deleted file|old mode|new mode|Binary |\+\+\+|---)/;
     fileEditContentLines = gitShowRawSections.map(section => {
       const lines = section.split('\n');
-      return lines.slice(1).flatMap(l => {
+      const display = lines.slice(1).flatMap(l => {
         if (l.startsWith('+++') || l.startsWith('---')) return wrapLine(l, cols).map(w => `\x1b[2m${w}\x1b[0m`);
         if (l.startsWith('+')) return wrapLine(l, cols).map(w => `\x1b[32m${w}\x1b[0m`);
         if (l.startsWith('-')) return wrapLine(l, cols).map(w => `\x1b[31m${w}\x1b[0m`);
@@ -173,6 +212,13 @@ export function cmdView(): void {
         }
         return wrapLine(`  ${l}`, cols);
       });
+      const before = lines
+        .filter(l => !skipHeader.test(l) && !l.startsWith('@@') && !l.startsWith('+'))
+        .map(l => l.startsWith('-') ? l.slice(1) : (l.startsWith(' ') ? l.slice(1) : l));
+      const after = lines
+        .filter(l => !skipHeader.test(l) && !l.startsWith('@@') && !l.startsWith('-'))
+        .map(l => l.startsWith('+') ? l.slice(1) : (l.startsWith(' ') ? l.slice(1) : l));
+      return { display, before, after };
     });
   }
 
@@ -192,7 +238,7 @@ export function cmdView(): void {
         const parts = output.split(/^diff --git /m);
         const fileSections = parts.slice(1);
         if (fileSections.length === 0) {
-          fileEditContentLines = [[`  (변경 파일 없음)`]];
+          fileEditContentLines = [{ display: [`  (변경 파일 없음)`], before: [], after: [] }];
           gitCommitFileNames = ['(no diff)'];
           return;
         }
@@ -203,7 +249,7 @@ export function cmdView(): void {
         });
         formatGitCommitSections(getTermSize().cols);
       } catch {
-        fileEditContentLines = [[`  git show ${hash} 실행 실패`]];
+        fileEditContentLines = [{ display: [`  git show ${hash} 실행 실패`], before: [], after: [] }];
         gitCommitFileNames = ['오류'];
       }
       return;
@@ -213,15 +259,18 @@ export function cmdView(): void {
       fileEditContentLines = [];
       return;
     }
+    const wrapCols = getTermSize().cols - 2; // '- '/'+ ' prefix 2칸 제외
     fileEditContentLines = h.fileEdits.map(edit => {
-      const lines: string[] = [];
+      const display: string[] = [];
       if (edit.tool === 'Edit') {
-        (edit.before ?? '').split('\n').forEach(l => lines.push(`\x1b[31m- ${l}\x1b[0m`));
-        (edit.after ?? '').split('\n').forEach(l => lines.push(`\x1b[32m+ ${l}\x1b[0m`));
+        (edit.before ?? '').split('\n').forEach(l => wrapLine(l, wrapCols).forEach(w => display.push(`\x1b[31m- ${w}\x1b[0m`)));
+        (edit.after ?? '').split('\n').forEach(l => wrapLine(l, wrapCols).forEach(w => display.push(`\x1b[32m+ ${w}\x1b[0m`)));
       } else if (edit.tool === 'Write') {
-        (edit.after ?? '').split('\n').forEach(l => lines.push(`\x1b[32m+ ${l}\x1b[0m`));
+        (edit.after ?? '').split('\n').forEach(l => wrapLine(l, wrapCols).forEach(w => display.push(`\x1b[32m+ ${w}\x1b[0m`)));
       }
-      return lines;
+      const before = (edit.before ?? '').split('\n');
+      const after = (edit.after ?? '').split('\n');
+      return { display, before, after };
     });
   }
 
@@ -370,11 +419,15 @@ export function cmdView(): void {
       process.stdout.write('─'.repeat(cols) + '\n');
     }
 
-    const lines = fileEditContentLines[fileEditIdx] ?? [];
-    const maxScroll = Math.max(0, lines.length - contentHeight);
+    const entry = fileEditContentLines[fileEditIdx];
+    const displayLines = pendingChord
+      ? ((pendingChord === 'z' ? entry?.before : entry?.after) ?? [])
+          .flatMap(l => wrapLine(l, cols - 2).map(w => `  ${w}`))
+      : (entry?.display ?? []);
+    const maxScroll = Math.max(0, displayLines.length - contentHeight);
     if (fileEditScrollOffset > maxScroll) fileEditScrollOffset = maxScroll;
 
-    const visible = lines.slice(fileEditScrollOffset, fileEditScrollOffset + contentHeight);
+    const visible = displayLines.slice(fileEditScrollOffset, fileEditScrollOffset + contentHeight);
     visible.forEach(line => process.stdout.write(line + '\n'));
     for (let i = visible.length; i < contentHeight; i++) process.stdout.write('\n');
   }
@@ -471,14 +524,17 @@ export function cmdView(): void {
     process.stdout.write('─'.repeat(cols) + '\n');
     const hint = deepCursor === 2
       ? (showingFileEdits
-          ? `▲▼ 스크롤  /  ◀ ▶ 파일 이동  /  f·esc 대화로 돌아가기  /  q 종료`
+          ? (pendingChord
+              ? `${pendingChord} 누름 → c 로 ${pendingChord === 'z' ? '변경전' : '변경후'} 내용 복사 / 다른 키로 취소`
+              : `▲▼ 스크롤  /  ◀ ▶ 파일 이동  /  z+c 변경전  /  x+c 변경후  /  f·esc 대화로 돌아가기  /  q 종료`)
           : searchMode
             ? `검색: ${searchQuery}_`
             : searchActive
-              ? `▲▼ 스크롤  /  ◀ ▶ 이동  /  f 수정파일  /  s 재검색  /  esc 검색해제  /  q 종료`
-              : `▲▼ 스크롤  /  ◀ ▶ history 이동  /  f 수정파일 보기  /  s 검색  /  esc 뒤로가기  /  q 종료`)
+              ? `▲▼ 스크롤  /  ◀ ▶ 이동  /  c 복사  /  f 수정파일  /  s 재검색  /  esc 검색해제  /  q 종료`
+              : `▲▼ 스크롤  /  ◀ ▶ history 이동  /  c 복사  /  f 수정파일 보기  /  s 검색  /  esc 뒤로가기  /  q 종료`)
       : `▲▼ 선택 이동  /  enter 선택  /  esc 뒤로가기  /  q 종료`;
-    process.stdout.write(`\x1b[2m${truncateLine(hint, cols)}\x1b[0m`);
+    const hintWithMsg = copyMessage ? `${hint}  \x1b[0m\x1b[32m${copyMessage}\x1b[2m` : hint;
+    process.stdout.write(`\x1b[2m${truncateLine(hintWithMsg, cols)}\x1b[0m`);
   }
 
   function exit(): void {
@@ -499,7 +555,10 @@ export function cmdView(): void {
   process.stdout.on('resize', () => {
     const { cols } = getTermSize();
     if (deepCursor === 2) buildContentLines(cols);
-    if (showingFileEdits && gitShowRawSections.length > 0) formatGitCommitSections(cols);
+    if (showingFileEdits) {
+      if (gitShowRawSections.length > 0) formatGitCommitSections(cols);
+      else buildFileEditLines(historyIdx);
+    }
     render();
   });
 
@@ -534,6 +593,20 @@ export function cmdView(): void {
         searchQuery += key;
         render();
       }
+      return;
+    }
+
+    // chord 완성 (z+c / x+c)
+    if (pendingChord && nk(key) === 'c' && deepCursor === 2 && showingFileEdits) {
+      const mode = pendingChord === 'z' ? 'before' : 'after';
+      pendingChord = '';
+      copyByDiffMode(mode);
+      return;
+    }
+    // chord 첫 키가 아닌 다른 키가 오면 chord 해제 후 diff view로 복귀
+    if (pendingChord && nk(key) !== 'z' && nk(key) !== 'x') {
+      pendingChord = '';
+      render();
       return;
     }
 
@@ -576,7 +649,11 @@ export function cmdView(): void {
         }
       } else if (deepCursor === 2) {
         if (showingFileEdits) {
-          const maxScroll = Math.max(0, (fileEditContentLines[fileEditIdx]?.length ?? 0) - chFile);
+          const _entry = fileEditContentLines[fileEditIdx];
+          const _len = pendingChord
+            ? (pendingChord === 'z' ? _entry?.before : _entry?.after)?.length ?? 0
+            : (_entry?.display.length ?? 0);
+          const maxScroll = Math.max(0, _len - chFile);
           if (fileEditScrollOffset < maxScroll) { fileEditScrollOffset++; render(); }
         } else {
           const maxScroll = Math.max(0, contentLines[historyIdx].length - ch2);
@@ -603,6 +680,20 @@ export function cmdView(): void {
           if (historyIdx > 0) { historyIdx--; scrollOffset = 0; render(); }
         }
       }
+    } else if (nk(key) === 'c' && deepCursor === 2 && !showingFileEdits && !searchMode) {
+      const h = histories[historyIdx];
+      if (h) {
+        let textToCopy = '';
+        if (h.source === 'git-commit') {
+          textToCopy = `[ 커밋 메시지 ]\n${h.prompt}\n`;
+        } else {
+          textToCopy = `[ 질문 ]\n${h.prompt}\n\n[ 응답 ]\n${h.answer ?? ''}\n\n[ 요약 ]\n${h.summary}\n`;
+        }
+        showCopyFeedback(copyToClipboard(textToCopy));
+      }
+    } else if ((nk(key) === 'z' || nk(key) === 'x') && deepCursor === 2 && showingFileEdits) {
+      pendingChord = nk(key);
+      render();
     } else if (nk(key) === 's' && deepCursor === 2 && !showingFileEdits) {
       searchMode = true;
       searchQuery = '';
