@@ -603,8 +603,8 @@ export function cmdView(): void {
       copyByDiffMode(mode);
       return;
     }
-    // chord 첫 키가 아닌 다른 키가 오면 chord 해제 후 diff view로 복귀
-    if (pendingChord && nk(key) !== 'z' && nk(key) !== 'x') {
+    // chord 첫 키가 아닌 다른 키가 오면 chord 해제 후 diff view로 복귀 (위아래 스크롤은 제외)
+    if (pendingChord && nk(key) !== 'z' && nk(key) !== 'x' && key !== '\x1b[A' && key !== '\x1b[B') {
       pendingChord = '';
       render();
       return;

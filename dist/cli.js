@@ -1333,7 +1333,7 @@ function cmdView() {
       copyByDiffMode(mode);
       return;
     }
-    if (pendingChord && nk(key) !== "z" && nk(key) !== "x") {
+    if (pendingChord && nk(key) !== "z" && nk(key) !== "x" && key !== "\x1B[A" && key !== "\x1B[B") {
       pendingChord = "";
       render();
       return;
