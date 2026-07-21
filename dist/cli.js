@@ -1235,7 +1235,8 @@ function cmdView() {
     const hasNoResult = searchActive && filteredIndices.length === 0;
     const timeHM = !hasNoResult ? (currentHistory?.time ?? "").split(" ")[1] : null;
     const timePart = timeHM ? `  \xB7  \u{1F552} ${timeHM}` : "";
-    const pageStr = hasNoResult ? ` \u2699\uFE0F  [PAGE] -/-` : ` \u2699\uFE0F  [PAGE] ${pageNum}/${pageTotal}${timePart}${fileEditsHint}`;
+    const sessionPart = !hasNoResult && currentHistory?.sessionId ? `  \xB7  \u{1F194} ${currentHistory.sessionId}` : "";
+    const pageStr = hasNoResult ? ` \u2699\uFE0F  [PAGE] -/-` : ` \u2699\uFE0F  [PAGE] ${pageNum}/${pageTotal}${timePart}${sessionPart}${fileEditsHint}`;
     process.stdout.write(truncateLine(pageStr, cols) + "\n");
     if (searchActive) {
       const searchStr = ` \u{1F50D} [KEYWORD] \uAC80\uC0C9\uC5B4: "${searchTerm}"   \uACB0\uACFC: ${filteredIndices.length}\uAC74`;
@@ -1452,7 +1453,11 @@ function cmdView() {
 ${h.prompt}
 `;
         } else {
-          textToCopy = `[ \uC9C8\uBB38 ]
+          const sessionPart = h.sessionId ? `[ \uC138\uC158 ID ]
+${h.sessionId}
+
+` : "";
+          textToCopy = `${sessionPart}[ \uC9C8\uBB38 ]
 ${h.prompt}
 
 [ \uC751\uB2F5 ]

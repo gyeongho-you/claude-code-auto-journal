@@ -392,6 +392,7 @@ function main() {
     prompt,
     summary,
     answer: last_assistant_message,
+    sessionId: session_id,
     ...fileEdits.length > 0 ? { fileEdits } : {}
   };
   fs3.appendFileSync(

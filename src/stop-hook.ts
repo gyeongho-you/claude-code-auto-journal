@@ -205,6 +205,7 @@ function main(): void {
     prompt,
     summary,
     answer: last_assistant_message,
+    sessionId: session_id,
     ...(fileEdits.length > 0 ? { fileEdits } : {}),
   };
 

@@ -465,9 +465,10 @@ export function cmdView(): void {
     const hasNoResult = searchActive && filteredIndices.length === 0;
     const timeHM = !hasNoResult ? (currentHistory?.time ?? '').split(' ')[1] : null;
     const timePart = timeHM ? `  ·  🕒 ${timeHM}` : '';
+    const sessionPart = !hasNoResult && currentHistory?.sessionId ? `  ·  🆔 ${currentHistory.sessionId}` : '';
     const pageStr = hasNoResult
       ? ` ⚙️  [PAGE] -/-`
-      : ` ⚙️  [PAGE] ${pageNum}/${pageTotal}${timePart}${fileEditsHint}`;
+      : ` ⚙️  [PAGE] ${pageNum}/${pageTotal}${timePart}${sessionPart}${fileEditsHint}`;
     process.stdout.write(truncateLine(pageStr, cols) + '\n');
 
     // 검색 정보 (검색 중일 때만)
@@ -687,7 +688,8 @@ export function cmdView(): void {
         if (h.source === 'git-commit') {
           textToCopy = `[ 커밋 메시지 ]\n${h.prompt}\n`;
         } else {
-          textToCopy = `[ 질문 ]\n${h.prompt}\n\n[ 응답 ]\n${h.answer ?? ''}\n\n[ 요약 ]\n${h.summary}\n`;
+          const sessionPart = h.sessionId ? `[ 세션 ID ]\n${h.sessionId}\n\n` : '';
+          textToCopy = `${sessionPart}[ 질문 ]\n${h.prompt}\n\n[ 응답 ]\n${h.answer ?? ''}\n\n[ 요약 ]\n${h.summary}\n`;
         }
         showCopyFeedback(copyToClipboard(textToCopy));
       }
