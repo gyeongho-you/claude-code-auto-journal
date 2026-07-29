@@ -859,12 +859,19 @@ function cmdView() {
   let globalResultsActive = false;
   let globalDetailActive = false;
   let globalResults = [];
+  let globalVisibleResults = [];
   let globalResultsTotal = 0;
   let globalResultIdx = 0;
   let globalResultOffset = 0;
   let globalSearchTerm = "";
   let globalEntriesLoaded = false;
   let globalEntriesCache = [];
+  let globalProjectFilter = null;
+  let globalDateFilter = { type: "all" };
+  let globalFilterPickerActive = null;
+  let globalFilterPickerIdx = 0;
+  let globalFilterPickerOffset = 0;
+  let globalFilterPickerItems = [];
   function nk(k) {
     return k.toLowerCase();
   }
@@ -1127,10 +1134,73 @@ function cmdView() {
     globalSearchTerm = term;
     globalResultsTotal = matched.length;
     globalResults = matched.slice(0, GLOBAL_RESULT_CAP);
-    globalResultIdx = 0;
-    globalResultOffset = 0;
+    globalProjectFilter = null;
+    globalDateFilter = { type: "all" };
+    recomputeGlobalVisible();
     globalResultsActive = true;
     globalDetailActive = false;
+  }
+  function matchesDateFilter(g, filter) {
+    if (filter.type === "all") return true;
+    const d = (g.entry.time ?? "").split(" ")[0] || g.date;
+    if (filter.type === "exact") return d === filter.date;
+    const t = g.entry.time ? new Date(g.entry.time.replace(" ", "T")).getTime() : 0;
+    return !!t && Date.now() - t <= filter.days * 864e5;
+  }
+  function recomputeGlobalVisible() {
+    globalVisibleResults = globalResults.filter(
+      (g) => (!globalProjectFilter || g.project === globalProjectFilter) && matchesDateFilter(g, globalDateFilter)
+    );
+    globalResultIdx = 0;
+    globalResultOffset = 0;
+  }
+  function dateFilterLabel(filter) {
+    if (filter.type === "all") return "\uC804\uCCB4";
+    if (filter.type === "recent") return `\uCD5C\uADFC ${filter.days}\uC77C`;
+    return filter.date;
+  }
+  function openProjectFilterPicker() {
+    const base = globalResults.filter((g) => matchesDateFilter(g, globalDateFilter));
+    const counts = /* @__PURE__ */ new Map();
+    base.forEach((g) => counts.set(g.project, (counts.get(g.project) ?? 0) + 1));
+    const items = [{ label: `\uC804\uCCB4 (${base.length}\uAC74)`, value: null }];
+    Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).forEach(([proj, cnt]) => items.push({ label: `${proj} (${cnt}\uAC74)`, value: proj }));
+    globalFilterPickerItems = items;
+    globalFilterPickerIdx = Math.max(0, items.findIndex((it) => it.value === globalProjectFilter));
+    globalFilterPickerOffset = 0;
+    globalFilterPickerActive = "project";
+  }
+  function openDateFilterPicker() {
+    const base = globalResults.filter((g) => !globalProjectFilter || g.project === globalProjectFilter);
+    const now = Date.now();
+    const countRecent = (days) => base.filter((g) => {
+      const t = g.entry.time ? new Date(g.entry.time.replace(" ", "T")).getTime() : 0;
+      return !!t && now - t <= days * 864e5;
+    }).length;
+    const dateCounts = /* @__PURE__ */ new Map();
+    base.forEach((g) => {
+      const d = (g.entry.time ?? "").split(" ")[0] || g.date;
+      dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1);
+    });
+    const items = [
+      { label: `\uC804\uCCB4 (${base.length}\uAC74)`, value: { type: "all" } },
+      { label: `\uCD5C\uADFC 7\uC77C (${countRecent(7)}\uAC74)`, value: { type: "recent", days: 7 } },
+      { label: `\uCD5C\uADFC 30\uC77C (${countRecent(30)}\uAC74)`, value: { type: "recent", days: 30 } },
+      { label: `\uCD5C\uADFC 90\uC77C (${countRecent(90)}\uAC74)`, value: { type: "recent", days: 90 } }
+    ];
+    Array.from(dateCounts.entries()).sort((a, b) => b[0].localeCompare(a[0])).forEach(([d, cnt]) => items.push({ label: `${d} (${cnt}\uAC74)`, value: { type: "exact", date: d } }));
+    globalFilterPickerItems = items;
+    globalFilterPickerIdx = 0;
+    globalFilterPickerOffset = 0;
+    globalFilterPickerActive = "date";
+  }
+  function renderFilterPickerList(contentHeight, cols) {
+    const visible = globalFilterPickerItems.slice(globalFilterPickerOffset, globalFilterPickerOffset + contentHeight);
+    visible.forEach((item, i) => {
+      const actualIdx = globalFilterPickerOffset + i;
+      process.stdout.write(truncateLine(`  ${actualIdx === globalFilterPickerIdx ? "\u25B7  " : "   "}${item.label}`, cols) + "\n");
+    });
+    for (let i = visible.length; i < contentHeight; i++) process.stdout.write("\n");
   }
   function makeSnippet(text, term, maxLen) {
     const flat = text.replace(/\s+/g, " ").trim();
@@ -1157,7 +1227,13 @@ function cmdView() {
       for (let i = 1; i < contentHeight; i++) process.stdout.write("\n");
       return;
     }
-    const visible = globalResults.slice(globalResultOffset, globalResultOffset + contentHeight);
+    if (globalVisibleResults.length === 0) {
+      process.stdout.write(`  \uD604\uC7AC \uD544\uD130 \uC870\uAC74\uC5D0 \uB9DE\uB294 \uACB0\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. (p/d\uB85C \uD544\uD130 \uBCC0\uACBD)
+`);
+      for (let i = 1; i < contentHeight; i++) process.stdout.write("\n");
+      return;
+    }
+    const visible = globalVisibleResults.slice(globalResultOffset, globalResultOffset + contentHeight);
     visible.forEach((g, i) => {
       const actualIdx = globalResultOffset + i;
       const cursor = actualIdx === globalResultIdx ? "\u25B7 " : "  ";
@@ -1172,7 +1248,7 @@ function cmdView() {
   }
   function enterGlobalDetail(idx) {
     historyIdx = idx;
-    histories = globalResults.map((g) => g.entry);
+    histories = globalVisibleResults.map((g) => g.entry);
     scrollOffset = 0;
     searchActive = false;
     showingFileEdits = false;
@@ -1318,7 +1394,7 @@ function cmdView() {
   }
   function renderContent(contentHeight, cols) {
     const date = dates[dateIdx];
-    const breadcrumb = globalDetailActive ? `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"  \xB7  ${globalResults[historyIdx]?.date ?? ""} \xB7 ${globalResults[historyIdx]?.project ?? ""}` : `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+    const breadcrumb = globalDetailActive ? `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"  \xB7  ${globalVisibleResults[historyIdx]?.date ?? ""} \xB7 ${globalVisibleResults[historyIdx]?.project ?? ""}` : `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
     process.stdout.write(truncateLine(breadcrumb, cols) + "\n");
     const currentHistory = histories[historyIdx];
     const isGitCommit = currentHistory?.source === "git-commit";
@@ -1369,9 +1445,16 @@ function cmdView() {
     const { rows, cols } = getTermSize();
     const date = dates[dateIdx];
     process.stdout.write("\x1B[H\x1B[2J");
-    if (globalResultsActive) {
-      const totalLabel = globalResultsTotal > globalResults.length ? ` (\uC804\uCCB4 ${globalResultsTotal}\uAC74 \uC911 \uCD5C\uC2E0 ${globalResults.length}\uAC74 \uD45C\uC2DC)` : "";
-      const header = `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"   \uACB0\uACFC ${globalResults.length}\uAC74${totalLabel}`;
+    if (globalFilterPickerActive) {
+      const title = globalFilterPickerActive === "project" ? "\uD504\uB85C\uC81D\uD2B8 \uD544\uD130 \uC120\uD0DD" : "\uAE30\uAC04 \uD544\uD130 \uC120\uD0DD";
+      process.stdout.write(`\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] ${title}
+`);
+      renderFilterPickerList(rows - 3, cols);
+    } else if (globalResultsActive) {
+      const capLabel = globalResultsTotal > globalResults.length ? ` (\uC804\uCCB4 ${globalResultsTotal}\uAC74 \uC911 \uCD5C\uC2E0 ${globalResults.length}\uAC74 \uC2A4\uCE94)` : "";
+      const countLabel = globalVisibleResults.length === globalResults.length ? `${globalResults.length}\uAC74` : `${globalVisibleResults.length}/${globalResults.length}\uAC74`;
+      const projLabel = globalProjectFilter ?? "\uC804\uCCB4";
+      const header = `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"   \uACB0\uACFC ${countLabel}${capLabel}   [\uD504\uB85C\uC81D\uD2B8: ${projLabel}]  [\uAE30\uAC04: ${dateFilterLabel(globalDateFilter)}]`;
       process.stdout.write(truncateLine(header, cols) + "\n");
       process.stdout.write("\u2501".repeat(cols) + "\n");
       renderGlobalResultsList(rows - 4, cols);
@@ -1384,7 +1467,7 @@ function cmdView() {
       renderContentList(rows - 4, cols);
     } else {
       if (showingFileEdits) {
-        const headerLine = globalDetailActive ? `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"  \xB7  ${globalResults[historyIdx]?.date ?? ""} \xB7 ${globalResults[historyIdx]?.project ?? ""}` : `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+        const headerLine = globalDetailActive ? `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"  \xB7  ${globalVisibleResults[historyIdx]?.date ?? ""} \xB7 ${globalVisibleResults[historyIdx]?.project ?? ""}` : `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
         process.stdout.write(truncateLine(headerLine, cols) + "\n");
         renderFileEdits(rows - 5, cols);
       } else {
@@ -1392,7 +1475,7 @@ function cmdView() {
       }
     }
     process.stdout.write("\u2500".repeat(cols) + "\n");
-    const hint = globalResultsActive ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC0C1\uC138\uBCF4\uAE30  /  s \uC7AC\uAC80\uC0C9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : deepCursor === 2 ? showingFileEdits ? pendingChord ? `${pendingChord} \uB204\uB984 \u2192 c \uB85C ${pendingChord === "z" ? "\uBCC0\uACBD\uC804" : "\uBCC0\uACBD\uD6C4"} \uB0B4\uC6A9 \uBCF5\uC0AC / \uB2E4\uB978 \uD0A4\uB85C \uCDE8\uC18C` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  z+c \uBCC0\uACBD\uC804  /  x+c \uBCC0\uACBD\uD6C4  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : globalDetailActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uACB0\uACFC \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uBAA9\uB85D\uC73C\uB85C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : deepCursor === 0 ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  s \uC804\uCCB4\uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
+    const hint = globalFilterPickerActive ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC801\uC6A9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : globalResultsActive ? `\u25B2\u25BC \uC774\uB3D9  /  enter \uC0C1\uC138\uBCF4\uAE30  /  p \uD504\uB85C\uC81D\uD2B8\uD544\uD130  /  d \uAE30\uAC04\uD544\uD130  /  s \uC7AC\uAC80\uC0C9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : deepCursor === 2 ? showingFileEdits ? pendingChord ? `${pendingChord} \uB204\uB984 \u2192 c \uB85C ${pendingChord === "z" ? "\uBCC0\uACBD\uC804" : "\uBCC0\uACBD\uD6C4"} \uB0B4\uC6A9 \uBCF5\uC0AC / \uB2E4\uB978 \uD0A4\uB85C \uCDE8\uC18C` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  z+c \uBCC0\uACBD\uC804  /  x+c \uBCC0\uACBD\uD6C4  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : globalDetailActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uACB0\uACFC \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uBAA9\uB85D\uC73C\uB85C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : deepCursor === 0 ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  s \uC804\uCCB4\uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
     const hintWithMsg = copyMessage ? `${hint}  \x1B[0m\x1B[32m${copyMessage}\x1B[2m` : hint;
     process.stdout.write(`\x1B[2m${truncateLine(hintWithMsg, cols)}\x1B[0m`);
   }
@@ -1449,6 +1532,38 @@ function cmdView() {
       }
       return;
     }
+    if (globalFilterPickerActive) {
+      const pickerHeight = rows - 3;
+      if (nk(key) === "q") {
+        exit();
+        process.exit(0);
+      } else if (key === "\x1B[A") {
+        if (globalFilterPickerIdx > 0) {
+          globalFilterPickerIdx--;
+          globalFilterPickerOffset = clampListOffset(globalFilterPickerIdx, globalFilterPickerOffset, pickerHeight);
+          render();
+        }
+      } else if (key === "\x1B[B") {
+        if (globalFilterPickerIdx < globalFilterPickerItems.length - 1) {
+          globalFilterPickerIdx++;
+          globalFilterPickerOffset = clampListOffset(globalFilterPickerIdx, globalFilterPickerOffset, pickerHeight);
+          render();
+        }
+      } else if (key === "\r" || key === "\r\n") {
+        const chosen = globalFilterPickerItems[globalFilterPickerIdx];
+        if (chosen) {
+          if (globalFilterPickerActive === "project") globalProjectFilter = chosen.value;
+          else globalDateFilter = chosen.value;
+          recomputeGlobalVisible();
+        }
+        globalFilterPickerActive = null;
+        render();
+      } else if (key === "\x1B") {
+        globalFilterPickerActive = null;
+        render();
+      }
+      return;
+    }
     if (globalResultsActive) {
       const listHeight = rows - 4;
       if (nk(key) === "q") {
@@ -1461,13 +1576,19 @@ function cmdView() {
           render();
         }
       } else if (key === "\x1B[B") {
-        if (globalResultIdx < globalResults.length - 1) {
+        if (globalResultIdx < globalVisibleResults.length - 1) {
           globalResultIdx++;
           globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
           render();
         }
       } else if (key === "\r" || key === "\r\n") {
-        if (globalResults.length > 0) enterGlobalDetail(globalResultIdx);
+        if (globalVisibleResults.length > 0) enterGlobalDetail(globalResultIdx);
+        render();
+      } else if (nk(key) === "p") {
+        openProjectFilterPicker();
+        render();
+      } else if (nk(key) === "d") {
+        openDateFilterPicker();
         render();
       } else if (nk(key) === "s") {
         searchMode = true;

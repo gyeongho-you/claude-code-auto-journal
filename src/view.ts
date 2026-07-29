@@ -7,6 +7,8 @@ import {HistoryEntry, RunHistoryEntry} from "./types";
 import {RUN_HISTORY_PATH} from "./cli";
 
 type GlobalEntry = { date: string; project: string; entry: HistoryEntry };
+type GlobalDateFilter = { type: 'all' } | { type: 'recent'; days: number } | { type: 'exact'; date: string };
+type FilterPickerItem = { label: string; value: unknown };
 const GLOBAL_RESULT_CAP = 300;
 
 export function cmdView(): void {
@@ -65,13 +67,20 @@ export function cmdView(): void {
   let searchIsGlobal = false;
   let globalResultsActive = false;   // 결과 목록 화면
   let globalDetailActive = false;    // 결과 목록에서 들어간 상세보기
-  let globalResults: GlobalEntry[] = [];
+  let globalResults: GlobalEntry[] = [];       // 검색어 매치 결과 (캡 적용)
+  let globalVisibleResults: GlobalEntry[] = []; // 위에서 프로젝트/기간 필터까지 적용한 실제 표시/탐색 대상
   let globalResultsTotal = 0;
   let globalResultIdx = 0;
   let globalResultOffset = 0;
   let globalSearchTerm = '';
   let globalEntriesLoaded = false;
   let globalEntriesCache: GlobalEntry[] = [];
+  let globalProjectFilter: string | null = null; // null = 전체
+  let globalDateFilter: GlobalDateFilter = { type: 'all' };
+  let globalFilterPickerActive: 'project' | 'date' | null = null;
+  let globalFilterPickerIdx = 0;
+  let globalFilterPickerOffset = 0;
+  let globalFilterPickerItems: FilterPickerItem[] = [];
 
   function nk(k: string): string {
     return k.toLowerCase();
@@ -349,10 +358,87 @@ export function cmdView(): void {
     globalSearchTerm = term;
     globalResultsTotal = matched.length;
     globalResults = matched.slice(0, GLOBAL_RESULT_CAP);
-    globalResultIdx = 0;
-    globalResultOffset = 0;
+    globalProjectFilter = null;
+    globalDateFilter = { type: 'all' };
+    recomputeGlobalVisible();
     globalResultsActive = true;
     globalDetailActive = false;
+  }
+
+  function matchesDateFilter(g: GlobalEntry, filter: GlobalDateFilter): boolean {
+    if (filter.type === 'all') return true;
+    const d = (g.entry.time ?? '').split(' ')[0] || g.date;
+    if (filter.type === 'exact') return d === filter.date;
+    const t = g.entry.time ? new Date(g.entry.time.replace(' ', 'T')).getTime() : 0;
+    return !!t && (Date.now() - t) <= filter.days * 86400000;
+  }
+
+  // 프로젝트/기간 필터를 반영해 실제 목록/탐색 대상(globalVisibleResults) 갱신
+  function recomputeGlobalVisible(): void {
+    globalVisibleResults = globalResults.filter(g =>
+      (!globalProjectFilter || g.project === globalProjectFilter) &&
+      matchesDateFilter(g, globalDateFilter)
+    );
+    globalResultIdx = 0;
+    globalResultOffset = 0;
+  }
+
+  function dateFilterLabel(filter: GlobalDateFilter): string {
+    if (filter.type === 'all') return '전체';
+    if (filter.type === 'recent') return `최근 ${filter.days}일`;
+    return filter.date;
+  }
+
+  // p: 현재 결과(기간 필터만 적용된 기준)에 등장하는 프로젝트 목록으로 필터 선택 화면 구성
+  function openProjectFilterPicker(): void {
+    const base = globalResults.filter(g => matchesDateFilter(g, globalDateFilter));
+    const counts = new Map<string, number>();
+    base.forEach(g => counts.set(g.project, (counts.get(g.project) ?? 0) + 1));
+    const items: FilterPickerItem[] = [{ label: `전체 (${base.length}건)`, value: null }];
+    Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([proj, cnt]) => items.push({ label: `${proj} (${cnt}건)`, value: proj }));
+    globalFilterPickerItems = items;
+    globalFilterPickerIdx = Math.max(0, items.findIndex(it => it.value === globalProjectFilter));
+    globalFilterPickerOffset = 0;
+    globalFilterPickerActive = 'project';
+  }
+
+  // d: 프리셋(전체/최근 N일) + 현재 결과(프로젝트 필터만 적용된 기준)에 실제 등장하는 날짜별 선택 항목 구성
+  function openDateFilterPicker(): void {
+    const base = globalResults.filter(g => !globalProjectFilter || g.project === globalProjectFilter);
+    const now = Date.now();
+    const countRecent = (days: number) => base.filter(g => {
+      const t = g.entry.time ? new Date(g.entry.time.replace(' ', 'T')).getTime() : 0;
+      return !!t && (now - t) <= days * 86400000;
+    }).length;
+    const dateCounts = new Map<string, number>();
+    base.forEach(g => {
+      const d = (g.entry.time ?? '').split(' ')[0] || g.date;
+      dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1);
+    });
+    const items: FilterPickerItem[] = [
+      { label: `전체 (${base.length}건)`, value: { type: 'all' } as GlobalDateFilter },
+      { label: `최근 7일 (${countRecent(7)}건)`, value: { type: 'recent', days: 7 } as GlobalDateFilter },
+      { label: `최근 30일 (${countRecent(30)}건)`, value: { type: 'recent', days: 30 } as GlobalDateFilter },
+      { label: `최근 90일 (${countRecent(90)}건)`, value: { type: 'recent', days: 90 } as GlobalDateFilter },
+    ];
+    Array.from(dateCounts.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .forEach(([d, cnt]) => items.push({ label: `${d} (${cnt}건)`, value: { type: 'exact', date: d } as GlobalDateFilter }));
+    globalFilterPickerItems = items;
+    globalFilterPickerIdx = 0;
+    globalFilterPickerOffset = 0;
+    globalFilterPickerActive = 'date';
+  }
+
+  function renderFilterPickerList(contentHeight: number, cols: number): void {
+    const visible = globalFilterPickerItems.slice(globalFilterPickerOffset, globalFilterPickerOffset + contentHeight);
+    visible.forEach((item, i) => {
+      const actualIdx = globalFilterPickerOffset + i;
+      process.stdout.write(truncateLine(`  ${actualIdx === globalFilterPickerIdx ? '▷  ' : '   '}${item.label}`, cols) + '\n');
+    });
+    for (let i = visible.length; i < contentHeight; i++) process.stdout.write('\n');
   }
 
   // 매치 지점 주변을 잘라 미리보기 스니펫 생성
@@ -382,7 +468,12 @@ export function cmdView(): void {
       for (let i = 1; i < contentHeight; i++) process.stdout.write('\n');
       return;
     }
-    const visible = globalResults.slice(globalResultOffset, globalResultOffset + contentHeight);
+    if (globalVisibleResults.length === 0) {
+      process.stdout.write(`  현재 필터 조건에 맞는 결과가 없습니다. (p/d로 필터 변경)\n`);
+      for (let i = 1; i < contentHeight; i++) process.stdout.write('\n');
+      return;
+    }
+    const visible = globalVisibleResults.slice(globalResultOffset, globalResultOffset + contentHeight);
     visible.forEach((g, i) => {
       const actualIdx = globalResultOffset + i;
       const cursor = actualIdx === globalResultIdx ? '▷ ' : '  ';
@@ -399,7 +490,7 @@ export function cmdView(): void {
   // 결과 목록에서 상세보기로 진입 (기존 deepCursor===2 로직을 그대로 재사용)
   function enterGlobalDetail(idx: number): void {
     historyIdx = idx;
-    histories = globalResults.map(g => g.entry);
+    histories = globalVisibleResults.map(g => g.entry);
     scrollOffset = 0;
     searchActive = false;
     showingFileEdits = false;
@@ -555,7 +646,7 @@ export function cmdView(): void {
     // 브레드크럼 헤더
     const date = dates[dateIdx];
     const breadcrumb = globalDetailActive
-      ? `📂 [전체검색] "${globalSearchTerm}"  ·  ${globalResults[historyIdx]?.date ?? ''} · ${globalResults[historyIdx]?.project ?? ''}`
+      ? `📂 [전체검색] "${globalSearchTerm}"  ·  ${globalVisibleResults[historyIdx]?.date ?? ''} · ${globalVisibleResults[historyIdx]?.project ?? ''}`
       : `📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
     process.stdout.write(truncateLine(breadcrumb, cols) + '\n');
 
@@ -623,12 +714,21 @@ export function cmdView(): void {
 
     process.stdout.write('\x1b[H\x1b[2J'); // 화면 클리어 후 커서 맨 위로
 
-    if (globalResultsActive) {
+    if (globalFilterPickerActive) {
+      // 고정: 헤더1 + 푸터2 = 3
+      const title = globalFilterPickerActive === 'project' ? '프로젝트 필터 선택' : '기간 필터 선택';
+      process.stdout.write(`📂 [전체검색] ${title}\n`);
+      renderFilterPickerList(rows - 3, cols);
+    } else if (globalResultsActive) {
       // 고정: 헤더1 + separator1(renderGlobalResultsList 내부) + 푸터2 = 4
-      const totalLabel = globalResultsTotal > globalResults.length
-        ? ` (전체 ${globalResultsTotal}건 중 최신 ${globalResults.length}건 표시)`
+      const capLabel = globalResultsTotal > globalResults.length
+        ? ` (전체 ${globalResultsTotal}건 중 최신 ${globalResults.length}건 스캔)`
         : '';
-      const header = `📂 [전체검색] "${globalSearchTerm}"   결과 ${globalResults.length}건${totalLabel}`;
+      const countLabel = globalVisibleResults.length === globalResults.length
+        ? `${globalResults.length}건`
+        : `${globalVisibleResults.length}/${globalResults.length}건`;
+      const projLabel = globalProjectFilter ?? '전체';
+      const header = `📂 [전체검색] "${globalSearchTerm}"   결과 ${countLabel}${capLabel}   [프로젝트: ${projLabel}]  [기간: ${dateFilterLabel(globalDateFilter)}]`;
       process.stdout.write(truncateLine(header, cols) + '\n');
       process.stdout.write('━'.repeat(cols) + '\n');
       renderGlobalResultsList(rows - 4, cols);
@@ -644,7 +744,7 @@ export function cmdView(): void {
       if (showingFileEdits) {
         // 고정: 헤더1 + filename1 + separator1 + 푸터2 = 5
         const headerLine = globalDetailActive
-          ? `📂 [전체검색] "${globalSearchTerm}"  ·  ${globalResults[historyIdx]?.date ?? ''} · ${globalResults[historyIdx]?.project ?? ''}`
+          ? `📂 [전체검색] "${globalSearchTerm}"  ·  ${globalVisibleResults[historyIdx]?.date ?? ''} · ${globalVisibleResults[historyIdx]?.project ?? ''}`
           : `📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
         process.stdout.write(truncateLine(headerLine, cols) + '\n');
         renderFileEdits(rows - 5, cols);
@@ -656,8 +756,10 @@ export function cmdView(): void {
 
     // 푸터
     process.stdout.write('─'.repeat(cols) + '\n');
-    const hint = globalResultsActive
-      ? `▲▼ 선택 이동  /  enter 상세보기  /  s 재검색  /  esc 취소  /  q 종료`
+    const hint = globalFilterPickerActive
+      ? `▲▼ 선택 이동  /  enter 적용  /  esc 취소  /  q 종료`
+      : globalResultsActive
+      ? `▲▼ 이동  /  enter 상세보기  /  p 프로젝트필터  /  d 기간필터  /  s 재검색  /  esc 취소  /  q 종료`
       : searchMode
         ? `검색: ${searchQuery}_`
         : deepCursor === 2
@@ -741,6 +843,40 @@ export function cmdView(): void {
       return;
     }
 
+    // 전체검색 - 프로젝트/기간 필터 선택 화면
+    if (globalFilterPickerActive) {
+      const pickerHeight = rows - 3;
+      if (nk(key) === 'q') {
+        exit();
+        process.exit(0);
+      } else if (key === '\x1b[A') {
+        if (globalFilterPickerIdx > 0) {
+          globalFilterPickerIdx--;
+          globalFilterPickerOffset = clampListOffset(globalFilterPickerIdx, globalFilterPickerOffset, pickerHeight);
+          render();
+        }
+      } else if (key === '\x1b[B') {
+        if (globalFilterPickerIdx < globalFilterPickerItems.length - 1) {
+          globalFilterPickerIdx++;
+          globalFilterPickerOffset = clampListOffset(globalFilterPickerIdx, globalFilterPickerOffset, pickerHeight);
+          render();
+        }
+      } else if (key === '\r' || key === '\r\n') {
+        const chosen = globalFilterPickerItems[globalFilterPickerIdx];
+        if (chosen) {
+          if (globalFilterPickerActive === 'project') globalProjectFilter = chosen.value as string | null;
+          else globalDateFilter = chosen.value as GlobalDateFilter;
+          recomputeGlobalVisible();
+        }
+        globalFilterPickerActive = null;
+        render();
+      } else if (key === '\x1b') {
+        globalFilterPickerActive = null;
+        render();
+      }
+      return;
+    }
+
     // 전체검색 결과 목록 화면
     if (globalResultsActive) {
       const listHeight = rows - 4;
@@ -754,13 +890,19 @@ export function cmdView(): void {
           render();
         }
       } else if (key === '\x1b[B') {
-        if (globalResultIdx < globalResults.length - 1) {
+        if (globalResultIdx < globalVisibleResults.length - 1) {
           globalResultIdx++;
           globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
           render();
         }
       } else if (key === '\r' || key === '\r\n') {
-        if (globalResults.length > 0) enterGlobalDetail(globalResultIdx);
+        if (globalVisibleResults.length > 0) enterGlobalDetail(globalResultIdx);
+        render();
+      } else if (nk(key) === 'p') {
+        openProjectFilterPicker();
+        render();
+      } else if (nk(key) === 'd') {
+        openDateFilterPicker();
         render();
       } else if (nk(key) === 's') {
         searchMode = true;
