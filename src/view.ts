@@ -6,6 +6,9 @@ import {loadConfig, logError} from './config';
 import {HistoryEntry, RunHistoryEntry} from "./types";
 import {RUN_HISTORY_PATH} from "./cli";
 
+type GlobalEntry = { date: string; project: string; entry: HistoryEntry };
+const GLOBAL_RESULT_CAP = 300;
+
 export function cmdView(): void {
   const config = loadConfig();
   const outputDir = config.journal.output_dir;
@@ -57,6 +60,18 @@ export function cmdView(): void {
   let copyMessage = '';
   let copyMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingChord = '';
+
+  // 전체검색(모든 날짜/프로젝트 대상)
+  let searchIsGlobal = false;
+  let globalResultsActive = false;   // 결과 목록 화면
+  let globalDetailActive = false;    // 결과 목록에서 들어간 상세보기
+  let globalResults: GlobalEntry[] = [];
+  let globalResultsTotal = 0;
+  let globalResultIdx = 0;
+  let globalResultOffset = 0;
+  let globalSearchTerm = '';
+  let globalEntriesLoaded = false;
+  let globalEntriesCache: GlobalEntry[] = [];
 
   function nk(k: string): string {
     return k.toLowerCase();
@@ -293,11 +308,115 @@ export function cmdView(): void {
     buildContentLines(getTermSize().cols);
   }
 
+  // 모든 날짜/프로젝트의 기록을 1회 스캔해 메모리에 캐싱 (세션 내 재사용)
+  function loadAllEntries(): GlobalEntry[] {
+    if (globalEntriesLoaded) return globalEntriesCache;
+    const result: GlobalEntry[] = [];
+    let allDates: string[] = [];
+    try { allDates = fs.readdirSync(outputDir).sort(); } catch { /* ignore */ }
+    for (const d of allDates) {
+      const histDir = path.join(outputDir, d, 'history');
+      let files: string[] = [];
+      try { files = fs.readdirSync(histDir); } catch { continue; }
+      for (const file of files) {
+        try {
+          const content = fs.readFileSync(path.join(histDir, file), 'utf-8');
+          const entries = extractJsonObjects(content);
+          for (const entry of entries) {
+            result.push({ date: d, project: file.replace(/\.jsonl?$/, ''), entry });
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    globalEntriesCache = result;
+    globalEntriesLoaded = true;
+    return result;
+  }
+
+  function applyGlobalSearch(term: string): void {
+    if (!globalEntriesLoaded) {
+      process.stdout.write('\x1b[H\x1b[2J');
+      process.stdout.write('⏳ 전체 기록 스캔 중...\n');
+    }
+    const all = loadAllEntries();
+    const lower = term.toLowerCase();
+    const matched = all
+      .filter(g =>
+        g.entry.prompt.toLowerCase().includes(lower) ||
+        (g.entry.answer ?? '').toLowerCase().includes(lower)
+      )
+      .sort((a, b) => (b.entry.time || '').localeCompare(a.entry.time || ''));
+    globalSearchTerm = term;
+    globalResultsTotal = matched.length;
+    globalResults = matched.slice(0, GLOBAL_RESULT_CAP);
+    globalResultIdx = 0;
+    globalResultOffset = 0;
+    globalResultsActive = true;
+    globalDetailActive = false;
+  }
+
+  // 매치 지점 주변을 잘라 미리보기 스니펫 생성
+  function makeSnippet(text: string, term: string, maxLen: number): string {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    if (!term) return flat.slice(0, maxLen);
+    const lower = flat.toLowerCase();
+    const idx = lower.indexOf(term.toLowerCase());
+    if (idx === -1) return flat.slice(0, maxLen);
+    const start = Math.max(0, idx - Math.floor(maxLen / 3));
+    let snippet = flat.slice(start, start + maxLen);
+    if (start > 0) snippet = `…${snippet}`;
+    if (start + maxLen < flat.length) snippet += '…';
+    return snippet;
+  }
+
+  function getMatchSnippet(g: GlobalEntry, term: string, maxLen: number): string {
+    const lower = term.toLowerCase();
+    if (g.entry.prompt.toLowerCase().includes(lower)) return makeSnippet(g.entry.prompt, term, maxLen);
+    if ((g.entry.answer ?? '').toLowerCase().includes(lower)) return makeSnippet(g.entry.answer ?? '', term, maxLen);
+    return makeSnippet(g.entry.prompt, term, maxLen);
+  }
+
+  function renderGlobalResultsList(contentHeight: number, cols: number): void {
+    if (globalResults.length === 0) {
+      process.stdout.write(`  검색 결과가 없습니다: "${globalSearchTerm}"\n`);
+      for (let i = 1; i < contentHeight; i++) process.stdout.write('\n');
+      return;
+    }
+    const visible = globalResults.slice(globalResultOffset, globalResultOffset + contentHeight);
+    visible.forEach((g, i) => {
+      const actualIdx = globalResultOffset + i;
+      const cursor = actualIdx === globalResultIdx ? '▷ ' : '  ';
+      const timeHM = (g.entry.time ?? '').split(' ')[1] ?? '';
+      const dateStr = (g.entry.time ?? '').split(' ')[0] ?? g.date;
+      const tag = g.entry.source === 'git-commit' ? '\x1b[36m[커밋]\x1b[0m ' : '';
+      const snippet = highlightText(getMatchSnippet(g, globalSearchTerm, 60), globalSearchTerm);
+      const line = `  ${cursor}${dateStr} · ${g.project}   ${timeHM}  ${tag}${snippet}`;
+      process.stdout.write(truncateLine(line, cols) + '\n');
+    });
+    for (let i = visible.length; i < contentHeight; i++) process.stdout.write('\n');
+  }
+
+  // 결과 목록에서 상세보기로 진입 (기존 deepCursor===2 로직을 그대로 재사용)
+  function enterGlobalDetail(idx: number): void {
+    historyIdx = idx;
+    histories = globalResults.map(g => g.entry);
+    scrollOffset = 0;
+    searchActive = false;
+    showingFileEdits = false;
+    deepCursor = 2;
+    globalDetailActive = true;
+    globalResultsActive = false;
+    buildContentLines(getTermSize().cols);
+  }
+
   function buildContentLines(cols: number): void {
     const innerCols = cols - 2;
     contentLines = histories.map(h => {
       const lines: string[] = [];
-      const applyHl = (w: string) => searchActive && searchTerm ? highlightText(w, searchTerm) : w;
+      const applyHl = (w: string) =>
+        searchActive && searchTerm ? highlightText(w, searchTerm)
+        : globalDetailActive && globalSearchTerm ? highlightText(w, globalSearchTerm)
+        : w;
       const addText = (text: string) =>
         text.split('\n').forEach(l => wrapLine(l, innerCols).forEach(w => lines.push(`  ${applyHl(w)}`)));
 
@@ -435,7 +554,9 @@ export function cmdView(): void {
   function renderContent(contentHeight: number, cols: number): void {
     // 브레드크럼 헤더
     const date = dates[dateIdx];
-    const breadcrumb = `📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+    const breadcrumb = globalDetailActive
+      ? `📂 [전체검색] "${globalSearchTerm}"  ·  ${globalResults[historyIdx]?.date ?? ''} · ${globalResults[historyIdx]?.project ?? ''}`
+      : `📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
     process.stdout.write(truncateLine(breadcrumb, cols) + '\n');
 
     // 페이지 정보
@@ -502,7 +623,16 @@ export function cmdView(): void {
 
     process.stdout.write('\x1b[H\x1b[2J'); // 화면 클리어 후 커서 맨 위로
 
-    if (deepCursor === 0) {
+    if (globalResultsActive) {
+      // 고정: 헤더1 + separator1(renderGlobalResultsList 내부) + 푸터2 = 4
+      const totalLabel = globalResultsTotal > globalResults.length
+        ? ` (전체 ${globalResultsTotal}건 중 최신 ${globalResults.length}건 표시)`
+        : '';
+      const header = `📂 [전체검색] "${globalSearchTerm}"   결과 ${globalResults.length}건${totalLabel}`;
+      process.stdout.write(truncateLine(header, cols) + '\n');
+      process.stdout.write('━'.repeat(cols) + '\n');
+      renderGlobalResultsList(rows - 4, cols);
+    } else if (deepCursor === 0) {
       // 고정: 헤더1 + 푸터2 = 3
       process.stdout.write(`📂 [기록 검색]\n`);
       renderDateList(rows - 3);
@@ -513,7 +643,10 @@ export function cmdView(): void {
     } else {
       if (showingFileEdits) {
         // 고정: 헤더1 + filename1 + separator1 + 푸터2 = 5
-        process.stdout.write(truncateLine(`📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`, cols) + '\n');
+        const headerLine = globalDetailActive
+          ? `📂 [전체검색] "${globalSearchTerm}"  ·  ${globalResults[historyIdx]?.date ?? ''} · ${globalResults[historyIdx]?.project ?? ''}`
+          : `📂 [기록 검색]  ${date} (${dateIdx + 1}/${dates.length}) › ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+        process.stdout.write(truncateLine(headerLine, cols) + '\n');
         renderFileEdits(rows - 5, cols);
       } else {
         // 고정: breadcrumb1 + page1 + (search1?) + separator1 + 푸터2 = 5 or 6
@@ -523,17 +656,23 @@ export function cmdView(): void {
 
     // 푸터
     process.stdout.write('─'.repeat(cols) + '\n');
-    const hint = deepCursor === 2
-      ? (showingFileEdits
-          ? (pendingChord
-              ? `${pendingChord} 누름 → c 로 ${pendingChord === 'z' ? '변경전' : '변경후'} 내용 복사 / 다른 키로 취소`
-              : `▲▼ 스크롤  /  ◀ ▶ 파일 이동  /  z+c 변경전  /  x+c 변경후  /  f·esc 대화로 돌아가기  /  q 종료`)
-          : searchMode
-            ? `검색: ${searchQuery}_`
-            : searchActive
-              ? `▲▼ 스크롤  /  ◀ ▶ 이동  /  c 복사  /  f 수정파일  /  s 재검색  /  esc 검색해제  /  q 종료`
-              : `▲▼ 스크롤  /  ◀ ▶ history 이동  /  c 복사  /  f 수정파일 보기  /  s 검색  /  esc 뒤로가기  /  q 종료`)
-      : `▲▼ 선택 이동  /  enter 선택  /  esc 뒤로가기  /  q 종료`;
+    const hint = globalResultsActive
+      ? `▲▼ 선택 이동  /  enter 상세보기  /  s 재검색  /  esc 취소  /  q 종료`
+      : searchMode
+        ? `검색: ${searchQuery}_`
+        : deepCursor === 2
+          ? (showingFileEdits
+              ? (pendingChord
+                  ? `${pendingChord} 누름 → c 로 ${pendingChord === 'z' ? '변경전' : '변경후'} 내용 복사 / 다른 키로 취소`
+                  : `▲▼ 스크롤  /  ◀ ▶ 파일 이동  /  z+c 변경전  /  x+c 변경후  /  f·esc 대화로 돌아가기  /  q 종료`)
+              : searchActive
+                ? `▲▼ 스크롤  /  ◀ ▶ 이동  /  c 복사  /  f 수정파일  /  s 재검색  /  esc 검색해제  /  q 종료`
+                : globalDetailActive
+                  ? `▲▼ 스크롤  /  ◀ ▶ 결과 이동  /  c 복사  /  f 수정파일  /  s 재검색  /  esc 목록으로  /  q 종료`
+                  : `▲▼ 스크롤  /  ◀ ▶ history 이동  /  c 복사  /  f 수정파일 보기  /  s 검색  /  esc 뒤로가기  /  q 종료`)
+          : (deepCursor === 0
+              ? `▲▼ 선택 이동  /  enter 선택  /  s 전체검색  /  esc 뒤로가기  /  q 종료`
+              : `▲▼ 선택 이동  /  enter 선택  /  esc 뒤로가기  /  q 종료`);
     const hintWithMsg = copyMessage ? `${hint}  \x1b[0m\x1b[32m${copyMessage}\x1b[2m` : hint;
     process.stdout.write(`\x1b[2m${truncateLine(hintWithMsg, cols)}\x1b[0m`);
   }
@@ -576,22 +715,62 @@ export function cmdView(): void {
       process.exit(0);
     }
 
-    // 검색 입력 모드
+    // 검색 입력 모드 (로컬 검색 / 전체검색 공용)
     if (searchMode) {
       if (key === '\r' || key === '\r\n') {
-        searchTerm = searchQuery;
         searchMode = false;
-        searchActive = true;
-        applySearch(searchTerm);
+        if (searchIsGlobal) {
+          applyGlobalSearch(searchQuery);
+        } else {
+          searchTerm = searchQuery;
+          searchActive = true;
+          applySearch(searchTerm);
+        }
         render();
       } else if (key === '\x1b') {
         searchMode = false;
+        searchIsGlobal = false;
         render();
       } else if (key === '\x7f' || key === '\b') {
         searchQuery = searchQuery.slice(0, -1);
         render();
       } else if (!key.startsWith('\x1b') && key !== '\x03') {
         searchQuery += key;
+        render();
+      }
+      return;
+    }
+
+    // 전체검색 결과 목록 화면
+    if (globalResultsActive) {
+      const listHeight = rows - 4;
+      if (nk(key) === 'q') {
+        exit();
+        process.exit(0);
+      } else if (key === '\x1b[A') {
+        if (globalResultIdx > 0) {
+          globalResultIdx--;
+          globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
+          render();
+        }
+      } else if (key === '\x1b[B') {
+        if (globalResultIdx < globalResults.length - 1) {
+          globalResultIdx++;
+          globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
+          render();
+        }
+      } else if (key === '\r' || key === '\r\n') {
+        if (globalResults.length > 0) enterGlobalDetail(globalResultIdx);
+        render();
+      } else if (nk(key) === 's') {
+        searchMode = true;
+        searchIsGlobal = true;
+        searchQuery = '';
+        render();
+      } else if (key === '\x1b') {
+        globalResultsActive = false;
+        globalDetailActive = false;
+        deepCursor = 0;
         render();
       }
       return;
@@ -698,6 +877,12 @@ export function cmdView(): void {
       render();
     } else if (nk(key) === 's' && deepCursor === 2 && !showingFileEdits) {
       searchMode = true;
+      searchIsGlobal = globalDetailActive; // 전체검색 상세보기에서는 재검색도 전체검색
+      searchQuery = '';
+      render();
+    } else if (nk(key) === 's' && deepCursor === 0) {
+      searchMode = true;
+      searchIsGlobal = true;
       searchQuery = '';
       render();
     } else if (nk(key) === 'f' && deepCursor === 2) {
@@ -735,6 +920,10 @@ export function cmdView(): void {
         historyIdx = 0;
         scrollOffset = 0;
         buildContentLines(getTermSize().cols);
+        render();
+      } else if (globalDetailActive) {
+        globalDetailActive = false;
+        globalResultsActive = true;
         render();
       } else if (deepCursor > 0) {
         deepCursor--;

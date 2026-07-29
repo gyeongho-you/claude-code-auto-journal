@@ -814,6 +814,7 @@ var fs5 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
 var import_child_process4 = require("child_process");
+var GLOBAL_RESULT_CAP = 300;
 function cmdView() {
   const config = loadConfig();
   const outputDir = config.journal.output_dir;
@@ -854,6 +855,16 @@ function cmdView() {
   let copyMessage = "";
   let copyMessageTimer = null;
   let pendingChord = "";
+  let searchIsGlobal = false;
+  let globalResultsActive = false;
+  let globalDetailActive = false;
+  let globalResults = [];
+  let globalResultsTotal = 0;
+  let globalResultIdx = 0;
+  let globalResultOffset = 0;
+  let globalSearchTerm = "";
+  let globalEntriesLoaded = false;
+  let globalEntriesCache = [];
   function nk(k) {
     return k.toLowerCase();
   }
@@ -1072,11 +1083,109 @@ function cmdView() {
     }
     buildContentLines(getTermSize().cols);
   }
+  function loadAllEntries() {
+    if (globalEntriesLoaded) return globalEntriesCache;
+    const result = [];
+    let allDates = [];
+    try {
+      allDates = fs5.readdirSync(outputDir).sort();
+    } catch {
+    }
+    for (const d of allDates) {
+      const histDir = path5.join(outputDir, d, "history");
+      let files = [];
+      try {
+        files = fs5.readdirSync(histDir);
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        try {
+          const content = fs5.readFileSync(path5.join(histDir, file), "utf-8");
+          const entries = extractJsonObjects2(content);
+          for (const entry of entries) {
+            result.push({ date: d, project: file.replace(/\.jsonl?$/, ""), entry });
+          }
+        } catch {
+        }
+      }
+    }
+    globalEntriesCache = result;
+    globalEntriesLoaded = true;
+    return result;
+  }
+  function applyGlobalSearch(term) {
+    if (!globalEntriesLoaded) {
+      process.stdout.write("\x1B[H\x1B[2J");
+      process.stdout.write("\u23F3 \uC804\uCCB4 \uAE30\uB85D \uC2A4\uCE94 \uC911...\n");
+    }
+    const all = loadAllEntries();
+    const lower = term.toLowerCase();
+    const matched = all.filter(
+      (g) => g.entry.prompt.toLowerCase().includes(lower) || (g.entry.answer ?? "").toLowerCase().includes(lower)
+    ).sort((a, b) => (b.entry.time || "").localeCompare(a.entry.time || ""));
+    globalSearchTerm = term;
+    globalResultsTotal = matched.length;
+    globalResults = matched.slice(0, GLOBAL_RESULT_CAP);
+    globalResultIdx = 0;
+    globalResultOffset = 0;
+    globalResultsActive = true;
+    globalDetailActive = false;
+  }
+  function makeSnippet(text, term, maxLen) {
+    const flat = text.replace(/\s+/g, " ").trim();
+    if (!term) return flat.slice(0, maxLen);
+    const lower = flat.toLowerCase();
+    const idx = lower.indexOf(term.toLowerCase());
+    if (idx === -1) return flat.slice(0, maxLen);
+    const start = Math.max(0, idx - Math.floor(maxLen / 3));
+    let snippet = flat.slice(start, start + maxLen);
+    if (start > 0) snippet = `\u2026${snippet}`;
+    if (start + maxLen < flat.length) snippet += "\u2026";
+    return snippet;
+  }
+  function getMatchSnippet(g, term, maxLen) {
+    const lower = term.toLowerCase();
+    if (g.entry.prompt.toLowerCase().includes(lower)) return makeSnippet(g.entry.prompt, term, maxLen);
+    if ((g.entry.answer ?? "").toLowerCase().includes(lower)) return makeSnippet(g.entry.answer ?? "", term, maxLen);
+    return makeSnippet(g.entry.prompt, term, maxLen);
+  }
+  function renderGlobalResultsList(contentHeight, cols) {
+    if (globalResults.length === 0) {
+      process.stdout.write(`  \uAC80\uC0C9 \uACB0\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4: "${globalSearchTerm}"
+`);
+      for (let i = 1; i < contentHeight; i++) process.stdout.write("\n");
+      return;
+    }
+    const visible = globalResults.slice(globalResultOffset, globalResultOffset + contentHeight);
+    visible.forEach((g, i) => {
+      const actualIdx = globalResultOffset + i;
+      const cursor = actualIdx === globalResultIdx ? "\u25B7 " : "  ";
+      const timeHM = (g.entry.time ?? "").split(" ")[1] ?? "";
+      const dateStr = (g.entry.time ?? "").split(" ")[0] ?? g.date;
+      const tag = g.entry.source === "git-commit" ? "\x1B[36m[\uCEE4\uBC0B]\x1B[0m " : "";
+      const snippet = highlightText(getMatchSnippet(g, globalSearchTerm, 60), globalSearchTerm);
+      const line = `  ${cursor}${dateStr} \xB7 ${g.project}   ${timeHM}  ${tag}${snippet}`;
+      process.stdout.write(truncateLine(line, cols) + "\n");
+    });
+    for (let i = visible.length; i < contentHeight; i++) process.stdout.write("\n");
+  }
+  function enterGlobalDetail(idx) {
+    historyIdx = idx;
+    histories = globalResults.map((g) => g.entry);
+    scrollOffset = 0;
+    searchActive = false;
+    showingFileEdits = false;
+    deepCursor = 2;
+    globalDetailActive = true;
+    globalResultsActive = false;
+    buildContentLines(getTermSize().cols);
+  }
   function buildContentLines(cols) {
     const innerCols = cols - 2;
     contentLines = histories.map((h) => {
       const lines = [];
-      const applyHl = (w) => searchActive && searchTerm ? highlightText(w, searchTerm) : w;
+      const applyHl = (w) => searchActive && searchTerm ? highlightText(w, searchTerm) : globalDetailActive && globalSearchTerm ? highlightText(w, globalSearchTerm) : w;
       const addText = (text) => text.split("\n").forEach((l) => wrapLine(l, innerCols).forEach((w) => lines.push(`  ${applyHl(w)}`)));
       if (h.source === "git-commit") {
         lines.push(`\x1B[1;36m[ \uCEE4\uBC0B \uBA54\uC2DC\uC9C0 ]\x1B[0m`);
@@ -1209,7 +1318,7 @@ function cmdView() {
   }
   function renderContent(contentHeight, cols) {
     const date = dates[dateIdx];
-    const breadcrumb = `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+    const breadcrumb = globalDetailActive ? `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"  \xB7  ${globalResults[historyIdx]?.date ?? ""} \xB7 ${globalResults[historyIdx]?.project ?? ""}` : `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
     process.stdout.write(truncateLine(breadcrumb, cols) + "\n");
     const currentHistory = histories[historyIdx];
     const isGitCommit = currentHistory?.source === "git-commit";
@@ -1260,7 +1369,13 @@ function cmdView() {
     const { rows, cols } = getTermSize();
     const date = dates[dateIdx];
     process.stdout.write("\x1B[H\x1B[2J");
-    if (deepCursor === 0) {
+    if (globalResultsActive) {
+      const totalLabel = globalResultsTotal > globalResults.length ? ` (\uC804\uCCB4 ${globalResultsTotal}\uAC74 \uC911 \uCD5C\uC2E0 ${globalResults.length}\uAC74 \uD45C\uC2DC)` : "";
+      const header = `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"   \uACB0\uACFC ${globalResults.length}\uAC74${totalLabel}`;
+      process.stdout.write(truncateLine(header, cols) + "\n");
+      process.stdout.write("\u2501".repeat(cols) + "\n");
+      renderGlobalResultsList(rows - 4, cols);
+    } else if (deepCursor === 0) {
       process.stdout.write(`\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]
 `);
       renderDateList(rows - 3);
@@ -1269,14 +1384,15 @@ function cmdView() {
       renderContentList(rows - 4, cols);
     } else {
       if (showingFileEdits) {
-        process.stdout.write(truncateLine(`\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`, cols) + "\n");
+        const headerLine = globalDetailActive ? `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"  \xB7  ${globalResults[historyIdx]?.date ?? ""} \xB7 ${globalResults[historyIdx]?.project ?? ""}` : `\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]  ${date} (${dateIdx + 1}/${dates.length}) \u203A ${contentList[contentListIdx]} (${contentListIdx + 1}/${contentList.length})`;
+        process.stdout.write(truncateLine(headerLine, cols) + "\n");
         renderFileEdits(rows - 5, cols);
       } else {
         renderContent(rows - (searchActive ? 6 : 5), cols);
       }
     }
     process.stdout.write("\u2500".repeat(cols) + "\n");
-    const hint = deepCursor === 2 ? showingFileEdits ? pendingChord ? `${pendingChord} \uB204\uB984 \u2192 c \uB85C ${pendingChord === "z" ? "\uBCC0\uACBD\uC804" : "\uBCC0\uACBD\uD6C4"} \uB0B4\uC6A9 \uBCF5\uC0AC / \uB2E4\uB978 \uD0A4\uB85C \uCDE8\uC18C` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  z+c \uBCC0\uACBD\uC804  /  x+c \uBCC0\uACBD\uD6C4  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
+    const hint = globalResultsActive ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC0C1\uC138\uBCF4\uAE30  /  s \uC7AC\uAC80\uC0C9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : deepCursor === 2 ? showingFileEdits ? pendingChord ? `${pendingChord} \uB204\uB984 \u2192 c \uB85C ${pendingChord === "z" ? "\uBCC0\uACBD\uC804" : "\uBCC0\uACBD\uD6C4"} \uB0B4\uC6A9 \uBCF5\uC0AC / \uB2E4\uB978 \uD0A4\uB85C \uCDE8\uC18C` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  z+c \uBCC0\uACBD\uC804  /  x+c \uBCC0\uACBD\uD6C4  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : globalDetailActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uACB0\uACFC \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uBAA9\uB85D\uC73C\uB85C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : deepCursor === 0 ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  s \uC804\uCCB4\uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
     const hintWithMsg = copyMessage ? `${hint}  \x1B[0m\x1B[32m${copyMessage}\x1B[2m` : hint;
     process.stdout.write(`\x1B[2m${truncateLine(hintWithMsg, cols)}\x1B[0m`);
   }
@@ -1311,19 +1427,57 @@ function cmdView() {
     }
     if (searchMode) {
       if (key === "\r" || key === "\r\n") {
-        searchTerm = searchQuery;
         searchMode = false;
-        searchActive = true;
-        applySearch(searchTerm);
+        if (searchIsGlobal) {
+          applyGlobalSearch(searchQuery);
+        } else {
+          searchTerm = searchQuery;
+          searchActive = true;
+          applySearch(searchTerm);
+        }
         render();
       } else if (key === "\x1B") {
         searchMode = false;
+        searchIsGlobal = false;
         render();
       } else if (key === "\x7F" || key === "\b") {
         searchQuery = searchQuery.slice(0, -1);
         render();
       } else if (!key.startsWith("\x1B") && key !== "") {
         searchQuery += key;
+        render();
+      }
+      return;
+    }
+    if (globalResultsActive) {
+      const listHeight = rows - 4;
+      if (nk(key) === "q") {
+        exit();
+        process.exit(0);
+      } else if (key === "\x1B[A") {
+        if (globalResultIdx > 0) {
+          globalResultIdx--;
+          globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
+          render();
+        }
+      } else if (key === "\x1B[B") {
+        if (globalResultIdx < globalResults.length - 1) {
+          globalResultIdx++;
+          globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
+          render();
+        }
+      } else if (key === "\r" || key === "\r\n") {
+        if (globalResults.length > 0) enterGlobalDetail(globalResultIdx);
+        render();
+      } else if (nk(key) === "s") {
+        searchMode = true;
+        searchIsGlobal = true;
+        searchQuery = "";
+        render();
+      } else if (key === "\x1B") {
+        globalResultsActive = false;
+        globalDetailActive = false;
+        deepCursor = 0;
         render();
       }
       return;
@@ -1474,6 +1628,12 @@ ${h.summary}
       render();
     } else if (nk(key) === "s" && deepCursor === 2 && !showingFileEdits) {
       searchMode = true;
+      searchIsGlobal = globalDetailActive;
+      searchQuery = "";
+      render();
+    } else if (nk(key) === "s" && deepCursor === 0) {
+      searchMode = true;
+      searchIsGlobal = true;
       searchQuery = "";
       render();
     } else if (nk(key) === "f" && deepCursor === 2) {
@@ -1511,6 +1671,10 @@ ${h.summary}
         historyIdx = 0;
         scrollOffset = 0;
         buildContentLines(getTermSize().cols);
+        render();
+      } else if (globalDetailActive) {
+        globalDetailActive = false;
+        globalResultsActive = true;
         render();
       } else if (deepCursor > 0) {
         deepCursor--;
