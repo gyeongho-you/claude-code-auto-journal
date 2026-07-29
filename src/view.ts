@@ -756,13 +756,13 @@ export function cmdView(): void {
 
     // 푸터
     process.stdout.write('─'.repeat(cols) + '\n');
-    const hint = globalFilterPickerActive
+    const hint = searchMode
+      ? `검색: ${searchQuery}_`
+      : globalFilterPickerActive
       ? `▲▼ 선택 이동  /  enter 적용  /  esc 취소  /  q 종료`
       : globalResultsActive
       ? `▲▼ 이동  /  enter 상세보기  /  p 프로젝트필터  /  d 기간필터  /  s 재검색  /  esc 취소  /  q 종료`
-      : searchMode
-        ? `검색: ${searchQuery}_`
-        : deepCursor === 2
+      : deepCursor === 2
           ? (showingFileEdits
               ? (pendingChord
                   ? `${pendingChord} 누름 → c 로 ${pendingChord === 'z' ? '변경전' : '변경후'} 내용 복사 / 다른 키로 취소`
