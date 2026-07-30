@@ -814,6 +814,7 @@ var fs5 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
 var import_child_process4 = require("child_process");
+var GLOBAL_LOAD_BATCH = 200;
 function cmdView() {
   const config = loadConfig();
   const outputDir = config.journal.output_dir;
@@ -862,14 +863,16 @@ function cmdView() {
   let globalResultIdx = 0;
   let globalResultOffset = 0;
   let globalSearchTerm = "";
-  let globalEntriesLoaded = false;
-  let globalEntriesCache = [];
   let globalProjectFilter = null;
   let globalDateFilter = { type: "all" };
   let globalFilterPickerActive = null;
   let globalFilterPickerIdx = 0;
   let globalFilterPickerOffset = 0;
   let globalFilterPickerItems = [];
+  let globalScanDates = [];
+  let globalScanCursor = 0;
+  let globalScanExhausted = false;
+  let globalScanLower = "";
   function nk(k) {
     return k.toLowerCase();
   }
@@ -1088,49 +1091,66 @@ function cmdView() {
     }
     buildContentLines(getTermSize().cols);
   }
-  function loadAllEntries() {
-    if (globalEntriesLoaded) return globalEntriesCache;
-    const result = [];
+  function listHistoryDates() {
     let allDates = [];
     try {
-      allDates = fs5.readdirSync(outputDir).sort();
+      allDates = fs5.readdirSync(outputDir).sort().reverse();
     } catch {
     }
-    for (const d of allDates) {
-      const histDir = path5.join(outputDir, d, "history");
-      let files = [];
+    return allDates;
+  }
+  function scanDateForMatches(date, lower) {
+    const histDir = path5.join(outputDir, date, "history");
+    let files = [];
+    try {
+      files = fs5.readdirSync(histDir);
+    } catch {
+      return [];
+    }
+    const result = [];
+    for (const file of files) {
       try {
-        files = fs5.readdirSync(histDir);
-      } catch {
-        continue;
-      }
-      for (const file of files) {
-        try {
-          const content = fs5.readFileSync(path5.join(histDir, file), "utf-8");
-          const entries = extractJsonObjects2(content);
-          for (const entry of entries) {
-            result.push({ date: d, project: file.replace(/\.jsonl?$/, ""), entry });
+        const content = fs5.readFileSync(path5.join(histDir, file), "utf-8");
+        const entries = extractJsonObjects2(content);
+        for (const entry of entries) {
+          if (entry.prompt.toLowerCase().includes(lower) || (entry.answer ?? "").toLowerCase().includes(lower)) {
+            result.push({ date, project: file.replace(/\.jsonl?$/, ""), entry });
           }
-        } catch {
         }
+      } catch {
       }
     }
-    globalEntriesCache = result;
-    globalEntriesLoaded = true;
+    result.sort((a, b) => (b.entry.time || "").localeCompare(a.entry.time || ""));
     return result;
   }
-  function applyGlobalSearch(term) {
-    if (!globalEntriesLoaded) {
-      process.stdout.write("\x1B[H\x1B[2J");
-      process.stdout.write("\u23F3 \uC804\uCCB4 \uAE30\uB85D \uC2A4\uCE94 \uC911...\n");
+  function loadMoreGlobalMatches(targetCount) {
+    while (globalResults.length < targetCount && !globalScanExhausted) {
+      if (globalScanCursor >= globalScanDates.length) {
+        globalScanExhausted = true;
+        break;
+      }
+      const date = globalScanDates[globalScanCursor];
+      globalScanCursor++;
+      globalResults.push(...scanDateForMatches(date, globalScanLower));
+      if (globalScanCursor >= globalScanDates.length) globalScanExhausted = true;
     }
-    const all = loadAllEntries();
-    const lower = term.toLowerCase();
-    const matched = all.filter(
-      (g) => g.entry.prompt.toLowerCase().includes(lower) || (g.entry.answer ?? "").toLowerCase().includes(lower)
-    ).sort((a, b) => (b.entry.time || "").localeCompare(a.entry.time || ""));
+  }
+  function forceCompleteGlobalScan() {
+    if (globalScanExhausted) return;
+    process.stdout.write("\x1B[H\x1B[2J");
+    process.stdout.write("\u23F3 \uD544\uD130 \uC9D1\uACC4\uB97C \uC704\uD574 \uB0A8\uC740 \uAE30\uB85D \uC2A4\uCE94 \uC911...\n");
+    loadMoreGlobalMatches(Infinity);
+  }
+  function applyGlobalSearch(term) {
+    process.stdout.write("\x1B[H\x1B[2J");
+    process.stdout.write("\u23F3 \uAC80\uC0C9 \uC911...\n");
     globalSearchTerm = term;
-    globalResults = matched;
+    globalScanLower = term.toLowerCase();
+    globalScanDates = listHistoryDates();
+    globalScanCursor = 0;
+    globalScanExhausted = false;
+    globalResults = [];
+    loadMoreGlobalMatches(GLOBAL_LOAD_BATCH);
     globalProjectFilter = null;
     globalDateFilter = { type: "all" };
     recomputeGlobalVisible();
@@ -1144,12 +1164,31 @@ function cmdView() {
     const t = g.entry.time ? new Date(g.entry.time.replace(" ", "T")).getTime() : 0;
     return !!t && Date.now() - t <= filter.days * 864e5;
   }
-  function recomputeGlobalVisible() {
+  function applyGlobalFilters() {
     globalVisibleResults = globalResults.filter(
       (g) => (!globalProjectFilter || g.project === globalProjectFilter) && matchesDateFilter(g, globalDateFilter)
     );
+  }
+  function recomputeGlobalVisible() {
+    applyGlobalFilters();
     globalResultIdx = 0;
     globalResultOffset = 0;
+  }
+  function goToNextGlobalPage(pageSize) {
+    const nextOffset = globalResultOffset + pageSize;
+    if (nextOffset >= globalVisibleResults.length && !globalScanExhausted) {
+      loadMoreGlobalMatches(globalResults.length + GLOBAL_LOAD_BATCH);
+      applyGlobalFilters();
+    }
+    if (nextOffset < globalVisibleResults.length) {
+      globalResultOffset = nextOffset;
+      globalResultIdx = nextOffset;
+    }
+  }
+  function goToPrevGlobalPage(pageSize) {
+    if (globalResultOffset === 0) return;
+    globalResultOffset = Math.max(0, globalResultOffset - pageSize);
+    globalResultIdx = globalResultOffset;
   }
   function dateFilterLabel(filter) {
     if (filter.type === "all") return "\uC804\uCCB4";
@@ -1157,6 +1196,8 @@ function cmdView() {
     return filter.date;
   }
   function openProjectFilterPicker() {
+    forceCompleteGlobalScan();
+    applyGlobalFilters();
     const base = globalResults.filter((g) => matchesDateFilter(g, globalDateFilter));
     const counts = /* @__PURE__ */ new Map();
     base.forEach((g) => counts.set(g.project, (counts.get(g.project) ?? 0) + 1));
@@ -1168,6 +1209,8 @@ function cmdView() {
     globalFilterPickerActive = "project";
   }
   function openDateFilterPicker() {
+    forceCompleteGlobalScan();
+    applyGlobalFilters();
     const base = globalResults.filter((g) => !globalProjectFilter || g.project === globalProjectFilter);
     const now = Date.now();
     const countRecent = (days) => base.filter((g) => {
@@ -1234,11 +1277,12 @@ function cmdView() {
     visible.forEach((g, i) => {
       const actualIdx = globalResultOffset + i;
       const cursor = actualIdx === globalResultIdx ? "\u25B7 " : "  ";
+      const num = `${actualIdx + 1}.`.padStart(5, " ");
       const timeHM = (g.entry.time ?? "").split(" ")[1] ?? "";
       const dateStr = (g.entry.time ?? "").split(" ")[0] ?? g.date;
       const tag = g.entry.source === "git-commit" ? "\x1B[36m[\uCEE4\uBC0B]\x1B[0m " : "";
       const snippet = highlightText(getMatchSnippet(g, globalSearchTerm, 60), globalSearchTerm);
-      const line = `  ${cursor}${dateStr} \xB7 ${g.project}   ${timeHM}  ${tag}${snippet}`;
+      const line = `  ${cursor}${num} ${dateStr} \xB7 ${g.project}   ${timeHM}  ${tag}${snippet}`;
       process.stdout.write(truncateLine(line, cols) + "\n");
     });
     for (let i = visible.length; i < contentHeight; i++) process.stdout.write("\n");
@@ -1448,12 +1492,14 @@ function cmdView() {
 `);
       renderFilterPickerList(rows - 3, cols);
     } else if (globalResultsActive) {
-      const countLabel = globalVisibleResults.length === globalResults.length ? `${globalResults.length}\uAC74` : `${globalVisibleResults.length}/${globalResults.length}\uAC74`;
+      const listHeight = rows - 4;
+      const rangeLabel = globalVisibleResults.length === 0 ? "0\uAC74" : `${globalResultOffset + 1}~${Math.min(globalResultOffset + listHeight, globalVisibleResults.length)}\uAC74`;
+      const loadedLabel = globalScanExhausted ? `\uCD1D ${globalVisibleResults.length}\uAC74` : `${globalVisibleResults.length}\uAC74+ \uB85C\uB4DC\uB428 \xB7 \uB354 \uC788\uC74C`;
       const projLabel = globalProjectFilter ?? "\uC804\uCCB4";
-      const header = `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"   \uACB0\uACFC ${countLabel}   [\uD504\uB85C\uC81D\uD2B8: ${projLabel}]  [\uAE30\uAC04: ${dateFilterLabel(globalDateFilter)}]`;
+      const header = `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"   ${rangeLabel} (${loadedLabel})   [\uD504\uB85C\uC81D\uD2B8: ${projLabel}]  [\uAE30\uAC04: ${dateFilterLabel(globalDateFilter)}]`;
       process.stdout.write(truncateLine(header, cols) + "\n");
       process.stdout.write("\u2501".repeat(cols) + "\n");
-      renderGlobalResultsList(rows - 4, cols);
+      renderGlobalResultsList(listHeight, cols);
     } else if (deepCursor === 0) {
       process.stdout.write(`\u{1F4C2} [\uAE30\uB85D \uAC80\uC0C9]
 `);
@@ -1471,7 +1517,7 @@ function cmdView() {
       }
     }
     process.stdout.write("\u2500".repeat(cols) + "\n");
-    const hint = searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : globalFilterPickerActive ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC801\uC6A9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : globalResultsActive ? `\u25B2\u25BC \uC774\uB3D9  /  enter \uC0C1\uC138\uBCF4\uAE30  /  p \uD504\uB85C\uC81D\uD2B8\uD544\uD130  /  d \uAE30\uAC04\uD544\uD130  /  s \uC7AC\uAC80\uC0C9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : deepCursor === 2 ? showingFileEdits ? pendingChord ? `${pendingChord} \uB204\uB984 \u2192 c \uB85C ${pendingChord === "z" ? "\uBCC0\uACBD\uC804" : "\uBCC0\uACBD\uD6C4"} \uB0B4\uC6A9 \uBCF5\uC0AC / \uB2E4\uB978 \uD0A4\uB85C \uCDE8\uC18C` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  z+c \uBCC0\uACBD\uC804  /  x+c \uBCC0\uACBD\uD6C4  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : globalDetailActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uACB0\uACFC \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uBAA9\uB85D\uC73C\uB85C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : deepCursor === 0 ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  s \uC804\uCCB4\uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
+    const hint = searchMode ? `\uAC80\uC0C9: ${searchQuery}_` : globalFilterPickerActive ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC801\uC6A9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : globalResultsActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD654\uBA74\uB2E8\uC704 \uC774\uB3D9  /  enter \uC0C1\uC138\uBCF4\uAE30  /  p \uD504\uB85C\uC81D\uD2B8\uD544\uD130  /  d \uAE30\uAC04\uD544\uD130  /  s \uC7AC\uAC80\uC0C9  /  esc \uCDE8\uC18C  /  q \uC885\uB8CC` : deepCursor === 2 ? showingFileEdits ? pendingChord ? `${pendingChord} \uB204\uB984 \u2192 c \uB85C ${pendingChord === "z" ? "\uBCC0\uACBD\uC804" : "\uBCC0\uACBD\uD6C4"} \uB0B4\uC6A9 \uBCF5\uC0AC / \uB2E4\uB978 \uD0A4\uB85C \uCDE8\uC18C` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uD30C\uC77C \uC774\uB3D9  /  z+c \uBCC0\uACBD\uC804  /  x+c \uBCC0\uACBD\uD6C4  /  f\xB7esc \uB300\uD654\uB85C \uB3CC\uC544\uAC00\uAE30  /  q \uC885\uB8CC` : searchActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uAC80\uC0C9\uD574\uC81C  /  q \uC885\uB8CC` : globalDetailActive ? `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 \uACB0\uACFC \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C  /  s \uC7AC\uAC80\uC0C9  /  esc \uBAA9\uB85D\uC73C\uB85C  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC2A4\uD06C\uB864  /  \u25C0 \u25B6 history \uC774\uB3D9  /  c \uBCF5\uC0AC  /  f \uC218\uC815\uD30C\uC77C \uBCF4\uAE30  /  s \uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : deepCursor === 0 ? `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  s \uC804\uCCB4\uAC80\uC0C9  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC` : `\u25B2\u25BC \uC120\uD0DD \uC774\uB3D9  /  enter \uC120\uD0DD  /  esc \uB4A4\uB85C\uAC00\uAE30  /  q \uC885\uB8CC`;
     const hintWithMsg = copyMessage ? `${hint}  \x1B[0m\x1B[32m${copyMessage}\x1B[2m` : hint;
     process.stdout.write(`\x1B[2m${truncateLine(hintWithMsg, cols)}\x1B[0m`);
   }
@@ -1572,11 +1618,21 @@ function cmdView() {
           render();
         }
       } else if (key === "\x1B[B") {
+        if (globalResultIdx >= globalVisibleResults.length - 1 && !globalScanExhausted) {
+          loadMoreGlobalMatches(globalResults.length + GLOBAL_LOAD_BATCH);
+          applyGlobalFilters();
+        }
         if (globalResultIdx < globalVisibleResults.length - 1) {
           globalResultIdx++;
           globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
           render();
         }
+      } else if (key === "\x1B[C") {
+        goToNextGlobalPage(listHeight);
+        render();
+      } else if (key === "\x1B[D") {
+        goToPrevGlobalPage(listHeight);
+        render();
       } else if (key === "\r" || key === "\r\n") {
         if (globalVisibleResults.length > 0) enterGlobalDetail(globalResultIdx);
         render();

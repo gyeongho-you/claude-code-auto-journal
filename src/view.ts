@@ -9,6 +9,7 @@ import {RUN_HISTORY_PATH} from "./cli";
 type GlobalEntry = { date: string; project: string; entry: HistoryEntry };
 type GlobalDateFilter = { type: 'all' } | { type: 'recent'; days: number } | { type: 'exact'; date: string };
 type FilterPickerItem = { label: string; value: unknown };
+const GLOBAL_LOAD_BATCH = 200; // 전체검색 시 한 번에 이어서 읽어오는 매치 목표 개수
 
 export function cmdView(): void {
   const config = loadConfig();
@@ -71,14 +72,17 @@ export function cmdView(): void {
   let globalResultIdx = 0;
   let globalResultOffset = 0;
   let globalSearchTerm = '';
-  let globalEntriesLoaded = false;
-  let globalEntriesCache: GlobalEntry[] = [];
   let globalProjectFilter: string | null = null; // null = 전체
   let globalDateFilter: GlobalDateFilter = { type: 'all' };
   let globalFilterPickerActive: 'project' | 'date' | null = null;
   let globalFilterPickerIdx = 0;
   let globalFilterPickerOffset = 0;
   let globalFilterPickerItems: FilterPickerItem[] = [];
+  // 날짜 폴더 단위 지연 스캔 상태 (한 번에 다 읽지 않고 필요한 만큼만 이어서 읽음)
+  let globalScanDates: string[] = [];   // 스캔 대상 날짜 목록 (최신 → 과거 순)
+  let globalScanCursor = 0;             // 다음에 읽을 날짜의 인덱스
+  let globalScanExhausted = false;      // 모든 날짜를 다 읽었는지
+  let globalScanLower = '';             // 스캔 중인 검색어(소문자)
 
   function nk(k: string): string {
     return k.toLowerCase();
@@ -315,46 +319,67 @@ export function cmdView(): void {
     buildContentLines(getTermSize().cols);
   }
 
-  // 모든 날짜/프로젝트의 기록을 1회 스캔해 메모리에 캐싱 (세션 내 재사용)
-  function loadAllEntries(): GlobalEntry[] {
-    if (globalEntriesLoaded) return globalEntriesCache;
-    const result: GlobalEntry[] = [];
+  // 스캔 대상 날짜 목록 (최신 → 과거 순). 날짜 폴더명(YYYY-MM-DD)만 읽으므로 가벼움
+  function listHistoryDates(): string[] {
     let allDates: string[] = [];
-    try { allDates = fs.readdirSync(outputDir).sort(); } catch { /* ignore */ }
-    for (const d of allDates) {
-      const histDir = path.join(outputDir, d, 'history');
-      let files: string[] = [];
-      try { files = fs.readdirSync(histDir); } catch { continue; }
-      for (const file of files) {
-        try {
-          const content = fs.readFileSync(path.join(histDir, file), 'utf-8');
-          const entries = extractJsonObjects(content);
-          for (const entry of entries) {
-            result.push({ date: d, project: file.replace(/\.jsonl?$/, ''), entry });
+    try { allDates = fs.readdirSync(outputDir).sort().reverse(); } catch { /* ignore */ }
+    return allDates;
+  }
+
+  // 날짜 하나(모든 프로젝트 파일)를 읽어 검색어 매치만 추려 반환. 같은 날짜 내에서는 시간 역순 정렬
+  // → 날짜 자체가 최신순으로 진행되므로, 이 결과를 globalResults 뒤에 이어 붙이기만 해도 전체 정렬 순서가 유지됨
+  function scanDateForMatches(date: string, lower: string): GlobalEntry[] {
+    const histDir = path.join(outputDir, date, 'history');
+    let files: string[] = [];
+    try { files = fs.readdirSync(histDir); } catch { return []; }
+    const result: GlobalEntry[] = [];
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(histDir, file), 'utf-8');
+        const entries = extractJsonObjects(content);
+        for (const entry of entries) {
+          if (
+            entry.prompt.toLowerCase().includes(lower) ||
+            (entry.answer ?? '').toLowerCase().includes(lower)
+          ) {
+            result.push({ date, project: file.replace(/\.jsonl?$/, ''), entry });
           }
-        } catch { /* ignore */ }
-      }
+        }
+      } catch { /* ignore */ }
     }
-    globalEntriesCache = result;
-    globalEntriesLoaded = true;
+    result.sort((a, b) => (b.entry.time || '').localeCompare(a.entry.time || ''));
     return result;
   }
 
-  function applyGlobalSearch(term: string): void {
-    if (!globalEntriesLoaded) {
-      process.stdout.write('\x1b[H\x1b[2J');
-      process.stdout.write('⏳ 전체 기록 스캔 중...\n');
+  // globalResults가 targetCount 이상이 되거나 더 읽을 날짜가 없을 때까지 이어서 스캔
+  function loadMoreGlobalMatches(targetCount: number): void {
+    while (globalResults.length < targetCount && !globalScanExhausted) {
+      if (globalScanCursor >= globalScanDates.length) { globalScanExhausted = true; break; }
+      const date = globalScanDates[globalScanCursor];
+      globalScanCursor++;
+      globalResults.push(...scanDateForMatches(date, globalScanLower));
+      if (globalScanCursor >= globalScanDates.length) globalScanExhausted = true;
     }
-    const all = loadAllEntries();
-    const lower = term.toLowerCase();
-    const matched = all
-      .filter(g =>
-        g.entry.prompt.toLowerCase().includes(lower) ||
-        (g.entry.answer ?? '').toLowerCase().includes(lower)
-      )
-      .sort((a, b) => (b.entry.time || '').localeCompare(a.entry.time || ''));
+  }
+
+  // p/d 필터는 정확한 건수가 필요하므로, 필터 화면을 열 때만 남은 날짜를 전부 읽어 완결시킴
+  function forceCompleteGlobalScan(): void {
+    if (globalScanExhausted) return;
+    process.stdout.write('\x1b[H\x1b[2J');
+    process.stdout.write('⏳ 필터 집계를 위해 남은 기록 스캔 중...\n');
+    loadMoreGlobalMatches(Infinity);
+  }
+
+  function applyGlobalSearch(term: string): void {
+    process.stdout.write('\x1b[H\x1b[2J');
+    process.stdout.write('⏳ 검색 중...\n');
     globalSearchTerm = term;
-    globalResults = matched;
+    globalScanLower = term.toLowerCase();
+    globalScanDates = listHistoryDates();
+    globalScanCursor = 0;
+    globalScanExhausted = false;
+    globalResults = [];
+    loadMoreGlobalMatches(GLOBAL_LOAD_BATCH);
     globalProjectFilter = null;
     globalDateFilter = { type: 'all' };
     recomputeGlobalVisible();
@@ -370,14 +395,39 @@ export function cmdView(): void {
     return !!t && (Date.now() - t) <= filter.days * 86400000;
   }
 
-  // 프로젝트/기간 필터를 반영해 실제 목록/탐색 대상(globalVisibleResults) 갱신
-  function recomputeGlobalVisible(): void {
+  // 프로젝트/기간 필터만 다시 적용 (커서/페이지 위치는 그대로 유지 — 페이지 이동 중 추가 로드 시 사용)
+  function applyGlobalFilters(): void {
     globalVisibleResults = globalResults.filter(g =>
       (!globalProjectFilter || g.project === globalProjectFilter) &&
       matchesDateFilter(g, globalDateFilter)
     );
+  }
+
+  // 프로젝트/기간 필터를 반영해 실제 목록/탐색 대상(globalVisibleResults) 갱신 + 첫 페이지로 이동
+  function recomputeGlobalVisible(): void {
+    applyGlobalFilters();
     globalResultIdx = 0;
     globalResultOffset = 0;
+  }
+
+  // ▶ 다음 페이지: 로드된 분량이 부족하면 필요한 만큼 이어서 스캔 후 이동
+  function goToNextGlobalPage(pageSize: number): void {
+    const nextOffset = globalResultOffset + pageSize;
+    if (nextOffset >= globalVisibleResults.length && !globalScanExhausted) {
+      loadMoreGlobalMatches(globalResults.length + GLOBAL_LOAD_BATCH);
+      applyGlobalFilters();
+    }
+    if (nextOffset < globalVisibleResults.length) {
+      globalResultOffset = nextOffset;
+      globalResultIdx = nextOffset;
+    }
+  }
+
+  // ◀ 이전 페이지: 이미 로드되어 있는 앞쪽으로만 이동 (추가 스캔 불필요)
+  function goToPrevGlobalPage(pageSize: number): void {
+    if (globalResultOffset === 0) return;
+    globalResultOffset = Math.max(0, globalResultOffset - pageSize);
+    globalResultIdx = globalResultOffset;
   }
 
   function dateFilterLabel(filter: GlobalDateFilter): string {
@@ -388,6 +438,8 @@ export function cmdView(): void {
 
   // p: 현재 결과(기간 필터만 적용된 기준)에 등장하는 프로젝트 목록으로 필터 선택 화면 구성
   function openProjectFilterPicker(): void {
+    forceCompleteGlobalScan();
+    applyGlobalFilters(); // 스캔이 새로 채워졌을 수 있으므로 취소 시에도 최신 상태 반영
     const base = globalResults.filter(g => matchesDateFilter(g, globalDateFilter));
     const counts = new Map<string, number>();
     base.forEach(g => counts.set(g.project, (counts.get(g.project) ?? 0) + 1));
@@ -403,6 +455,8 @@ export function cmdView(): void {
 
   // d: 프리셋(전체/최근 N일) + 현재 결과(프로젝트 필터만 적용된 기준)에 실제 등장하는 날짜별 선택 항목 구성
   function openDateFilterPicker(): void {
+    forceCompleteGlobalScan();
+    applyGlobalFilters(); // 스캔이 새로 채워졌을 수 있으므로 취소 시에도 최신 상태 반영
     const base = globalResults.filter(g => !globalProjectFilter || g.project === globalProjectFilter);
     const now = Date.now();
     const countRecent = (days: number) => base.filter(g => {
@@ -474,11 +528,12 @@ export function cmdView(): void {
     visible.forEach((g, i) => {
       const actualIdx = globalResultOffset + i;
       const cursor = actualIdx === globalResultIdx ? '▷ ' : '  ';
+      const num = `${actualIdx + 1}.`.padStart(5, ' ');
       const timeHM = (g.entry.time ?? '').split(' ')[1] ?? '';
       const dateStr = (g.entry.time ?? '').split(' ')[0] ?? g.date;
       const tag = g.entry.source === 'git-commit' ? '\x1b[36m[커밋]\x1b[0m ' : '';
       const snippet = highlightText(getMatchSnippet(g, globalSearchTerm, 60), globalSearchTerm);
-      const line = `  ${cursor}${dateStr} · ${g.project}   ${timeHM}  ${tag}${snippet}`;
+      const line = `  ${cursor}${num} ${dateStr} · ${g.project}   ${timeHM}  ${tag}${snippet}`;
       process.stdout.write(truncateLine(line, cols) + '\n');
     });
     for (let i = visible.length; i < contentHeight; i++) process.stdout.write('\n');
@@ -718,14 +773,18 @@ export function cmdView(): void {
       renderFilterPickerList(rows - 3, cols);
     } else if (globalResultsActive) {
       // 고정: 헤더1 + separator1(renderGlobalResultsList 내부) + 푸터2 = 4
-      const countLabel = globalVisibleResults.length === globalResults.length
-        ? `${globalResults.length}건`
-        : `${globalVisibleResults.length}/${globalResults.length}건`;
+      const listHeight = rows - 4;
+      const rangeLabel = globalVisibleResults.length === 0
+        ? '0건'
+        : `${globalResultOffset + 1}~${Math.min(globalResultOffset + listHeight, globalVisibleResults.length)}건`;
+      const loadedLabel = globalScanExhausted
+        ? `총 ${globalVisibleResults.length}건`
+        : `${globalVisibleResults.length}건+ 로드됨 · 더 있음`;
       const projLabel = globalProjectFilter ?? '전체';
-      const header = `📂 [전체검색] "${globalSearchTerm}"   결과 ${countLabel}   [프로젝트: ${projLabel}]  [기간: ${dateFilterLabel(globalDateFilter)}]`;
+      const header = `📂 [전체검색] "${globalSearchTerm}"   ${rangeLabel} (${loadedLabel})   [프로젝트: ${projLabel}]  [기간: ${dateFilterLabel(globalDateFilter)}]`;
       process.stdout.write(truncateLine(header, cols) + '\n');
       process.stdout.write('━'.repeat(cols) + '\n');
-      renderGlobalResultsList(rows - 4, cols);
+      renderGlobalResultsList(listHeight, cols);
     } else if (deepCursor === 0) {
       // 고정: 헤더1 + 푸터2 = 3
       process.stdout.write(`📂 [기록 검색]\n`);
@@ -755,7 +814,7 @@ export function cmdView(): void {
       : globalFilterPickerActive
       ? `▲▼ 선택 이동  /  enter 적용  /  esc 취소  /  q 종료`
       : globalResultsActive
-      ? `▲▼ 이동  /  enter 상세보기  /  p 프로젝트필터  /  d 기간필터  /  s 재검색  /  esc 취소  /  q 종료`
+      ? `▲▼ 스크롤  /  ◀ ▶ 화면단위 이동  /  enter 상세보기  /  p 프로젝트필터  /  d 기간필터  /  s 재검색  /  esc 취소  /  q 종료`
       : deepCursor === 2
           ? (showingFileEdits
               ? (pendingChord
@@ -877,18 +936,28 @@ export function cmdView(): void {
       if (nk(key) === 'q') {
         exit();
         process.exit(0);
-      } else if (key === '\x1b[A') {
+      } else if (key === '\x1b[A') { // ▲ 한 줄씩 스크롤 (무한스크롤)
         if (globalResultIdx > 0) {
           globalResultIdx--;
           globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
           render();
         }
-      } else if (key === '\x1b[B') {
+      } else if (key === '\x1b[B') { // ▼ 한 줄씩 스크롤. 로드된 끝에 가까워지면 이어서 스캔 (무한스크롤)
+        if (globalResultIdx >= globalVisibleResults.length - 1 && !globalScanExhausted) {
+          loadMoreGlobalMatches(globalResults.length + GLOBAL_LOAD_BATCH);
+          applyGlobalFilters();
+        }
         if (globalResultIdx < globalVisibleResults.length - 1) {
           globalResultIdx++;
           globalResultOffset = clampListOffset(globalResultIdx, globalResultOffset, listHeight);
           render();
         }
+      } else if (key === '\x1b[C') { // ▶ 지금 보고 있는 위치 기준으로 한 화면 분량 뒤로 점프 (부족하면 이어서 스캔)
+        goToNextGlobalPage(listHeight);
+        render();
+      } else if (key === '\x1b[D') { // ◀ 지금 보고 있는 위치 기준으로 한 화면 분량 앞으로 점프
+        goToPrevGlobalPage(listHeight);
+        render();
       } else if (key === '\r' || key === '\r\n') {
         if (globalVisibleResults.length > 0) enterGlobalDetail(globalResultIdx);
         render();
