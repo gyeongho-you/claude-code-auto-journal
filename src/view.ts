@@ -9,7 +9,6 @@ import {RUN_HISTORY_PATH} from "./cli";
 type GlobalEntry = { date: string; project: string; entry: HistoryEntry };
 type GlobalDateFilter = { type: 'all' } | { type: 'recent'; days: number } | { type: 'exact'; date: string };
 type FilterPickerItem = { label: string; value: unknown };
-const GLOBAL_RESULT_CAP = 300;
 
 export function cmdView(): void {
   const config = loadConfig();
@@ -67,9 +66,8 @@ export function cmdView(): void {
   let searchIsGlobal = false;
   let globalResultsActive = false;   // 결과 목록 화면
   let globalDetailActive = false;    // 결과 목록에서 들어간 상세보기
-  let globalResults: GlobalEntry[] = [];       // 검색어 매치 결과 (캡 적용)
+  let globalResults: GlobalEntry[] = [];       // 검색어 매치 결과 (전체)
   let globalVisibleResults: GlobalEntry[] = []; // 위에서 프로젝트/기간 필터까지 적용한 실제 표시/탐색 대상
-  let globalResultsTotal = 0;
   let globalResultIdx = 0;
   let globalResultOffset = 0;
   let globalSearchTerm = '';
@@ -356,8 +354,7 @@ export function cmdView(): void {
       )
       .sort((a, b) => (b.entry.time || '').localeCompare(a.entry.time || ''));
     globalSearchTerm = term;
-    globalResultsTotal = matched.length;
-    globalResults = matched.slice(0, GLOBAL_RESULT_CAP);
+    globalResults = matched;
     globalProjectFilter = null;
     globalDateFilter = { type: 'all' };
     recomputeGlobalVisible();
@@ -721,14 +718,11 @@ export function cmdView(): void {
       renderFilterPickerList(rows - 3, cols);
     } else if (globalResultsActive) {
       // 고정: 헤더1 + separator1(renderGlobalResultsList 내부) + 푸터2 = 4
-      const capLabel = globalResultsTotal > globalResults.length
-        ? ` (전체 ${globalResultsTotal}건 중 최신 ${globalResults.length}건 스캔)`
-        : '';
       const countLabel = globalVisibleResults.length === globalResults.length
         ? `${globalResults.length}건`
         : `${globalVisibleResults.length}/${globalResults.length}건`;
       const projLabel = globalProjectFilter ?? '전체';
-      const header = `📂 [전체검색] "${globalSearchTerm}"   결과 ${countLabel}${capLabel}   [프로젝트: ${projLabel}]  [기간: ${dateFilterLabel(globalDateFilter)}]`;
+      const header = `📂 [전체검색] "${globalSearchTerm}"   결과 ${countLabel}   [프로젝트: ${projLabel}]  [기간: ${dateFilterLabel(globalDateFilter)}]`;
       process.stdout.write(truncateLine(header, cols) + '\n');
       process.stdout.write('━'.repeat(cols) + '\n');
       renderGlobalResultsList(rows - 4, cols);

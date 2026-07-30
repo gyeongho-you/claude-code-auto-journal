@@ -814,7 +814,6 @@ var fs5 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
 var import_child_process4 = require("child_process");
-var GLOBAL_RESULT_CAP = 300;
 function cmdView() {
   const config = loadConfig();
   const outputDir = config.journal.output_dir;
@@ -860,7 +859,6 @@ function cmdView() {
   let globalDetailActive = false;
   let globalResults = [];
   let globalVisibleResults = [];
-  let globalResultsTotal = 0;
   let globalResultIdx = 0;
   let globalResultOffset = 0;
   let globalSearchTerm = "";
@@ -1132,8 +1130,7 @@ function cmdView() {
       (g) => g.entry.prompt.toLowerCase().includes(lower) || (g.entry.answer ?? "").toLowerCase().includes(lower)
     ).sort((a, b) => (b.entry.time || "").localeCompare(a.entry.time || ""));
     globalSearchTerm = term;
-    globalResultsTotal = matched.length;
-    globalResults = matched.slice(0, GLOBAL_RESULT_CAP);
+    globalResults = matched;
     globalProjectFilter = null;
     globalDateFilter = { type: "all" };
     recomputeGlobalVisible();
@@ -1451,10 +1448,9 @@ function cmdView() {
 `);
       renderFilterPickerList(rows - 3, cols);
     } else if (globalResultsActive) {
-      const capLabel = globalResultsTotal > globalResults.length ? ` (\uC804\uCCB4 ${globalResultsTotal}\uAC74 \uC911 \uCD5C\uC2E0 ${globalResults.length}\uAC74 \uC2A4\uCE94)` : "";
       const countLabel = globalVisibleResults.length === globalResults.length ? `${globalResults.length}\uAC74` : `${globalVisibleResults.length}/${globalResults.length}\uAC74`;
       const projLabel = globalProjectFilter ?? "\uC804\uCCB4";
-      const header = `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"   \uACB0\uACFC ${countLabel}${capLabel}   [\uD504\uB85C\uC81D\uD2B8: ${projLabel}]  [\uAE30\uAC04: ${dateFilterLabel(globalDateFilter)}]`;
+      const header = `\u{1F4C2} [\uC804\uCCB4\uAC80\uC0C9] "${globalSearchTerm}"   \uACB0\uACFC ${countLabel}   [\uD504\uB85C\uC81D\uD2B8: ${projLabel}]  [\uAE30\uAC04: ${dateFilterLabel(globalDateFilter)}]`;
       process.stdout.write(truncateLine(header, cols) + "\n");
       process.stdout.write("\u2501".repeat(cols) + "\n");
       renderGlobalResultsList(rows - 4, cols);
