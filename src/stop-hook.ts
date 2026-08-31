@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import {
+  extractProjectName,
   getDateString,
   getDateStringWithHourMinutes,
   getNowMinutes,
@@ -13,6 +14,7 @@ import {
   readAndClearSessionEdits,
   recordRunHistory,
   saveGitHooks,
+  shouldTrackProject,
   GIT_HOOK_MARKER_BEGIN,
   GIT_HOOK_MARKER_END,
 } from './config';
@@ -31,12 +33,6 @@ function isInTimeRange(start: string, end: string, timeZone: string): boolean {
   }
   // 자정을 넘기는 범위 (예: 22:00 ~ 02:00)
   return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
-}
-
-function extractProjectName(cwd: string): string {
-  if (!cwd) return '_unknown';
-  const parts = cwd.replace(/\\/g, '/').split('/');
-  return parts[parts.length - 1] || '_unknown';
 }
 
 function getLastUserMessage(transcriptPath: string): string | null {
@@ -151,7 +147,7 @@ function main(): void {
 
   const projectName = extractProjectName(cwd);
 
-  if(config.focus && config.focus.use && !config.focus.files.includes(projectName)) {
+  if (!shouldTrackProject(config, projectName)) {
      return;
   }
 

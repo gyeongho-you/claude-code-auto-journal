@@ -58,7 +58,8 @@ export function loadConfig(): Config {
         defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir,
       },
-      focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      focus: { ...defaultConfig.focus, ...userConfig.focus },
+      exclude: { ...defaultConfig.exclude, ...userConfig.exclude },
       gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
@@ -68,6 +69,23 @@ export function loadConfig(): Config {
     logError(`user-config.json 파싱 실패: ${e}`);
     return defaultConfig;
   }
+}
+
+export function extractProjectName(cwd: string): string {
+  if (!cwd) return '_unknown';
+  const parts = cwd.replace(/\\/g, '/').split('/');
+  return parts[parts.length - 1] || '_unknown';
+}
+
+// focus.files와 exclude.files에 같은 프로젝트가 있으면 focus가 우선 (포함)
+export function shouldTrackProject(config: Config, projectName: string): boolean {
+  if (config.focus.use) {
+    return config.focus.files.includes(projectName);
+  }
+  if (config.exclude.use && config.exclude.files.includes(projectName)) {
+    return false;
+  }
+  return true;
 }
 
 export function getDateString(timeZone: string): string {

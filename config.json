@@ -21,6 +21,10 @@
     "use": false,
     "files" : []
   },
+  "exclude" : {
+    "use": false,
+    "files" : []
+  },
   "gitCommit": {
     "use": true
   },

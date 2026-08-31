@@ -79,7 +79,8 @@ function loadConfig() {
         defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
-      focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      focus: { ...defaultConfig.focus, ...userConfig.focus },
+      exclude: { ...defaultConfig.exclude, ...userConfig.exclude },
       gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
@@ -89,6 +90,15 @@ function loadConfig() {
     logError(`user-config.json \uD30C\uC2F1 \uC2E4\uD328: ${e}`);
     return defaultConfig;
   }
+}
+function shouldTrackProject(config, projectName) {
+  if (config.focus.use) {
+    return config.focus.files.includes(projectName);
+  }
+  if (config.exclude.use && config.exclude.files.includes(projectName)) {
+    return false;
+  }
+  return true;
 }
 function getDateString(timeZone) {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
@@ -144,7 +154,7 @@ function main() {
     return;
   }
   const projectName = path2.basename(repoRoot);
-  if (config.focus?.use && !config.focus.files.includes(projectName)) {
+  if (!shouldTrackProject(config, projectName)) {
     return;
   }
   let commitMessage;

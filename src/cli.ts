@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import {execSync} from 'child_process';
-import {DATA_DIR, loadConfig, logError, getDateString} from './config';
+import {DATA_DIR, loadConfig, logError, getDateString, extractProjectName, shouldTrackProject} from './config';
 import {RunHistoryEntry} from './types';
 import {writeJournal} from "./generate-journal";
 import {setup, uninstall} from "./setup";
@@ -58,6 +58,14 @@ function cmdConfig(): void {
   console.log(`                           - 일지 작성시 사용되는 claudeModel \n`);
   console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60)+ "..." : config.journal.stylePrompt}"`);
   console.log(`                           - 일지 작성 스타일 등을 정하는 프롬프트 \n`);
+  console.log(`  focus.use            : ${config.focus.use}`);
+  console.log(`                           - true 시 focus.files에 지정된 프로젝트의 대화만 기록 (나머지는 스킵) \n`);
+  console.log(`  focus.files          : ${JSON.stringify(config.focus.files)}`);
+  console.log(`                           - focus.use: true일 때 기록할 프로젝트 이름 목록 (dj project로 이름 확인 가능) \n`);
+  console.log(`  exclude.use          : ${config.exclude.use}`);
+  console.log(`                           - true 시 exclude.files에 지정된 프로젝트의 대화는 기록 안 함 (focus.use: true면 무시됨) \n`);
+  console.log(`  exclude.files        : ${JSON.stringify(config.exclude.files)}`);
+  console.log(`                           - exclude.use: true일 때 기록에서 제외할 프로젝트 이름 목록 \n`);
   console.log(`  gitCommit.use        : ${config.gitCommit.use}`);
   console.log(`                           - true 시 git commit 발생 시 자동으로 커밋 내역을 일지에 기록. Claude 없이 수정한 사항도 포함됨 \n`);
   console.log(`  cleanup              : ${config.cleanup}`);
@@ -67,6 +75,43 @@ function cmdConfig(): void {
   console.log(`  timeZone             : ${config.timeZone}`);
   console.log(`                           - 원하는 timeZone 설정 ( 미설정 또는 유효하지 않을 시 기본 Asia/Seoul로 설정됨 ) \n`);
   console.log(`\n  설정 파일 위치: ${userConfigPath}\n`);
+}
+
+// ─── project ───────────────────────────────────────────────────────────────
+
+function cmdProject(): void {
+  const config = loadConfig();
+  const cwd = process.cwd();
+  const cwdName = extractProjectName(cwd);
+
+  console.log(`\n현재 디렉토리: ${cwd}`);
+  console.log(`대화(Claude) 기록 시 사용되는 프로젝트 이름 : "${cwdName}"`);
+
+  let gitName: string | null = null;
+  try {
+    const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    gitName = path.basename(repoRoot);
+    console.log(`git commit 기록 시 사용되는 프로젝트 이름     : "${gitName}"`);
+  } catch {
+    console.log('git 저장소 아님 (git commit 기록은 적용되지 않음)');
+  }
+
+  console.log('');
+
+  const report = (label: string, name: string) => {
+    const tracked = shouldTrackProject(config, name);
+    console.log(`  "${name}" (${label}) → ${tracked ? '기록됨' : '기록 안 됨'}`);
+  };
+
+  report('대화', cwdName);
+  if (gitName && gitName !== cwdName) {
+    report('git commit', gitName);
+  }
+
+  console.log('');
+  console.log('  focus.use / exclude.use 설정에 따라 결과가 달라집니다.');
+  console.log('  이 이름을 focus.files 또는 exclude.files에 추가/제거하려면 user-config.json을 수정하세요:');
+  console.log(`  ${path.join(DATA_DIR, 'user-config.json')}\n`);
 }
 
 // ─── logs ──────────────────────────────────────────────────────────────────
@@ -168,6 +213,7 @@ function cmdHelp(): void {
   console.log('\n사용법: dj <command>\n');
   console.log('  help                     이 도움말 표시');
   console.log('  config                   현재 설정 및 옵션 확인');
+  console.log('  project                  현재 디렉토리의 프로젝트 이름 및 focus/exclude 적용 여부 확인');
   console.log('  logs                     일지 생성 성공/실패 기록 확인');
   console.log('  write-journal [date]     오늘 일지 수동 생성 (날짜 지정 시 해당 날짜, 예: dj write-journal 2026-02-25)');
   console.log('  retry                    일지 생성에 실패한 날짜 들의 일지 재생성');
@@ -187,6 +233,9 @@ switch (command) {
     break;
   case 'config':
     cmdConfig();
+    break;
+  case 'project':
+    try { cmdProject(); } catch (e) { logError(String(e)); process.exit(1); }
     break;
   case 'logs':
     cmdLogs();

@@ -93,7 +93,8 @@ function loadConfig() {
         defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
-      focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      focus: { ...defaultConfig.focus, ...userConfig.focus },
+      exclude: { ...defaultConfig.exclude, ...userConfig.exclude },
       gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,
@@ -103,6 +104,20 @@ function loadConfig() {
     logError(`user-config.json \uD30C\uC2F1 \uC2E4\uD328: ${e}`);
     return defaultConfig;
   }
+}
+function extractProjectName(cwd) {
+  if (!cwd) return "_unknown";
+  const parts = cwd.replace(/\\/g, "/").split("/");
+  return parts[parts.length - 1] || "_unknown";
+}
+function shouldTrackProject(config, projectName) {
+  if (config.focus.use) {
+    return config.focus.files.includes(projectName);
+  }
+  if (config.exclude.use && config.exclude.files.includes(projectName)) {
+    return false;
+  }
+  return true;
 }
 function getDateString(timeZone) {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(/* @__PURE__ */ new Date());
@@ -659,6 +674,7 @@ function createUserConfigIfAbsent() {
       output_dir: defaultConfig.journal.output_dir
     },
     focus: { ...defaultConfig.focus },
+    exclude: { ...defaultConfig.exclude },
     gitCommit: { ...defaultConfig.gitCommit },
     cleanup: defaultConfig.cleanup,
     save: defaultConfig.save,
@@ -1923,6 +1939,18 @@ function cmdConfig() {
   console.log(`  journal.stylePrompt  : "${config.journal.stylePrompt.length > 60 ? config.journal.stylePrompt.slice(0, 60) + "..." : config.journal.stylePrompt}"`);
   console.log(`                           - \uC77C\uC9C0 \uC791\uC131 \uC2A4\uD0C0\uC77C \uB4F1\uC744 \uC815\uD558\uB294 \uD504\uB86C\uD504\uD2B8 
 `);
+  console.log(`  focus.use            : ${config.focus.use}`);
+  console.log(`                           - true \uC2DC focus.files\uC5D0 \uC9C0\uC815\uB41C \uD504\uB85C\uC81D\uD2B8\uC758 \uB300\uD654\uB9CC \uAE30\uB85D (\uB098\uBA38\uC9C0\uB294 \uC2A4\uD0B5) 
+`);
+  console.log(`  focus.files          : ${JSON.stringify(config.focus.files)}`);
+  console.log(`                           - focus.use: true\uC77C \uB54C \uAE30\uB85D\uD560 \uD504\uB85C\uC81D\uD2B8 \uC774\uB984 \uBAA9\uB85D (dj project\uB85C \uC774\uB984 \uD655\uC778 \uAC00\uB2A5) 
+`);
+  console.log(`  exclude.use          : ${config.exclude.use}`);
+  console.log(`                           - true \uC2DC exclude.files\uC5D0 \uC9C0\uC815\uB41C \uD504\uB85C\uC81D\uD2B8\uC758 \uB300\uD654\uB294 \uAE30\uB85D \uC548 \uD568 (focus.use: true\uBA74 \uBB34\uC2DC\uB428) 
+`);
+  console.log(`  exclude.files        : ${JSON.stringify(config.exclude.files)}`);
+  console.log(`                           - exclude.use: true\uC77C \uB54C \uAE30\uB85D\uC5D0\uC11C \uC81C\uC678\uD560 \uD504\uB85C\uC81D\uD2B8 \uC774\uB984 \uBAA9\uB85D 
+`);
   console.log(`  gitCommit.use        : ${config.gitCommit.use}`);
   console.log(`                           - true \uC2DC git commit \uBC1C\uC0DD \uC2DC \uC790\uB3D9\uC73C\uB85C \uCEE4\uBC0B \uB0B4\uC5ED\uC744 \uC77C\uC9C0\uC5D0 \uAE30\uB85D. Claude \uC5C6\uC774 \uC218\uC815\uD55C \uC0AC\uD56D\uB3C4 \uD3EC\uD568\uB428 
 `);
@@ -1937,6 +1965,36 @@ function cmdConfig() {
 `);
   console.log(`
   \uC124\uC815 \uD30C\uC77C \uC704\uCE58: ${userConfigPath}
+`);
+}
+function cmdProject() {
+  const config = loadConfig();
+  const cwd = process.cwd();
+  const cwdName = extractProjectName(cwd);
+  console.log(`
+\uD604\uC7AC \uB514\uB809\uD1A0\uB9AC: ${cwd}`);
+  console.log(`\uB300\uD654(Claude) \uAE30\uB85D \uC2DC \uC0AC\uC6A9\uB418\uB294 \uD504\uB85C\uC81D\uD2B8 \uC774\uB984 : "${cwdName}"`);
+  let gitName = null;
+  try {
+    const repoRoot = (0, import_child_process5.execSync)("git rev-parse --show-toplevel", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    gitName = path6.basename(repoRoot);
+    console.log(`git commit \uAE30\uB85D \uC2DC \uC0AC\uC6A9\uB418\uB294 \uD504\uB85C\uC81D\uD2B8 \uC774\uB984     : "${gitName}"`);
+  } catch {
+    console.log("git \uC800\uC7A5\uC18C \uC544\uB2D8 (git commit \uAE30\uB85D\uC740 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC74C)");
+  }
+  console.log("");
+  const report = (label, name) => {
+    const tracked = shouldTrackProject(config, name);
+    console.log(`  "${name}" (${label}) \u2192 ${tracked ? "\uAE30\uB85D\uB428" : "\uAE30\uB85D \uC548 \uB428"}`);
+  };
+  report("\uB300\uD654", cwdName);
+  if (gitName && gitName !== cwdName) {
+    report("git commit", gitName);
+  }
+  console.log("");
+  console.log("  focus.use / exclude.use \uC124\uC815\uC5D0 \uB530\uB77C \uACB0\uACFC\uAC00 \uB2EC\uB77C\uC9D1\uB2C8\uB2E4.");
+  console.log("  \uC774 \uC774\uB984\uC744 focus.files \uB610\uB294 exclude.files\uC5D0 \uCD94\uAC00/\uC81C\uAC70\uD558\uB824\uBA74 user-config.json\uC744 \uC218\uC815\uD558\uC138\uC694:");
+  console.log(`  ${path6.join(DATA_DIR, "user-config.json")}
 `);
 }
 function cmdLogs() {
@@ -2020,6 +2078,7 @@ function cmdHelp() {
   console.log("\n\uC0AC\uC6A9\uBC95: dj <command>\n");
   console.log("  help                     \uC774 \uB3C4\uC6C0\uB9D0 \uD45C\uC2DC");
   console.log("  config                   \uD604\uC7AC \uC124\uC815 \uBC0F \uC635\uC158 \uD655\uC778");
+  console.log("  project                  \uD604\uC7AC \uB514\uB809\uD1A0\uB9AC\uC758 \uD504\uB85C\uC81D\uD2B8 \uC774\uB984 \uBC0F focus/exclude \uC801\uC6A9 \uC5EC\uBD80 \uD655\uC778");
   console.log("  logs                     \uC77C\uC9C0 \uC0DD\uC131 \uC131\uACF5/\uC2E4\uD328 \uAE30\uB85D \uD655\uC778");
   console.log("  write-journal [date]     \uC624\uB298 \uC77C\uC9C0 \uC218\uB3D9 \uC0DD\uC131 (\uB0A0\uC9DC \uC9C0\uC815 \uC2DC \uD574\uB2F9 \uB0A0\uC9DC, \uC608: dj write-journal 2026-02-25)");
   console.log("  retry                    \uC77C\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD55C \uB0A0\uC9DC \uB4E4\uC758 \uC77C\uC9C0 \uC7AC\uC0DD\uC131");
@@ -2035,6 +2094,14 @@ switch (command) {
     break;
   case "config":
     cmdConfig();
+    break;
+  case "project":
+    try {
+      cmdProject();
+    } catch (e) {
+      logError(String(e));
+      process.exit(1);
+    }
     break;
   case "logs":
     cmdLogs();

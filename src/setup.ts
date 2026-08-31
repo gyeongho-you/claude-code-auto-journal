@@ -178,6 +178,7 @@ function createUserConfigIfAbsent(): void {
       output_dir: defaultConfig.journal.output_dir,
     },
     focus: {...defaultConfig.focus},
+    exclude: {...defaultConfig.exclude},
     gitCommit: {...defaultConfig.gitCommit},
     cleanup: defaultConfig.cleanup,
     save: defaultConfig.save,

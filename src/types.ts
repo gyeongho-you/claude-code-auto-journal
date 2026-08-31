@@ -21,6 +21,10 @@ export type Config = {
     use: boolean;
     files: string[];
   };
+  exclude: {
+    use: boolean;
+    files: string[];
+  };
   gitCommit: {
     use: boolean;
   };

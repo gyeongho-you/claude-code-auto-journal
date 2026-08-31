@@ -89,7 +89,8 @@ function loadConfig() {
         defaultPrompt: defaultConfig.journal.defaultPrompt,
         output_dir: userConfig.journal?.output_dir || defaultConfig.journal.output_dir
       },
-      focus: userConfig.focus ? defaultConfig.focus : userConfig.focus,
+      focus: { ...defaultConfig.focus, ...userConfig.focus },
+      exclude: { ...defaultConfig.exclude, ...userConfig.exclude },
       gitCommit: { ...defaultConfig.gitCommit, ...userConfig.gitCommit },
       cleanup: userConfig.cleanup ?? defaultConfig.cleanup,
       save: userConfig.save ?? defaultConfig.save,

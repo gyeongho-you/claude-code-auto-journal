@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { loadConfig, getDateStringWithHourMinutes, getTodayDir, logError } from './config';
+import { loadConfig, getDateStringWithHourMinutes, getTodayDir, logError, shouldTrackProject } from './config';
 import { HistoryEntry } from './types';
 
 function main(): void {
@@ -17,7 +17,7 @@ function main(): void {
 
   const projectName = path.basename(repoRoot);
 
-  if (config.focus?.use && !config.focus.files.includes(projectName)) {
+  if (!shouldTrackProject(config, projectName)) {
     return;
   }
 
