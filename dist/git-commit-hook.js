@@ -91,6 +91,7 @@ function loadConfig() {
     return defaultConfig;
   }
 }
+var SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
 function shouldTrackProject(config, projectName) {
   if (config.focus.use) {
     return config.focus.files.includes(projectName);

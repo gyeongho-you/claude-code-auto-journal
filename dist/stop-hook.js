@@ -98,6 +98,38 @@ function extractProjectName(cwd) {
   const parts = cwd.replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || "_unknown";
 }
+var SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
+function getStableProjectName(sessionId, cwd) {
+  const filePath = path.join(SESSION_EDITS_DIR, `${sessionId}.project.json`);
+  try {
+    if (fs.existsSync(filePath)) {
+      const cached = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      if (cached.projectName) return cached.projectName;
+    }
+  } catch {
+  }
+  const projectName = extractProjectName(cwd);
+  try {
+    fs.mkdirSync(SESSION_EDITS_DIR, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ projectName, cwd }), "utf-8");
+  } catch {
+  }
+  return projectName;
+}
+function cleanupStaleSessionProjectCache() {
+  try {
+    if (!fs.existsSync(SESSION_EDITS_DIR)) return;
+    const now = Date.now();
+    for (const file of fs.readdirSync(SESSION_EDITS_DIR)) {
+      if (!file.endsWith(".project.json")) continue;
+      const filePath = path.join(SESSION_EDITS_DIR, file);
+      if (now - fs.statSync(filePath).mtimeMs > SESSION_PROJECT_CACHE_MAX_AGE_MS) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  } catch {
+  }
+}
 function shouldTrackProject(config, projectName) {
   if (config.focus.use) {
     return config.focus.files.includes(projectName);
@@ -360,7 +392,8 @@ function main() {
   }
   const { session_id, cwd, last_assistant_message, transcript_path } = payload;
   const config = loadConfig();
-  const projectName = extractProjectName(cwd);
+  cleanupStaleSessionProjectCache();
+  const projectName = getStableProjectName(session_id, cwd);
   if (!shouldTrackProject(config, projectName)) {
     return;
   }

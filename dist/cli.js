@@ -110,6 +110,7 @@ function extractProjectName(cwd) {
   const parts = cwd.replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || "_unknown";
 }
+var SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
 function shouldTrackProject(config, projectName) {
   if (config.focus.use) {
     return config.focus.files.includes(projectName);

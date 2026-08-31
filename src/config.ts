@@ -77,6 +77,49 @@ export function extractProjectName(cwd: string): string {
   return parts[parts.length - 1] || '_unknown';
 }
 
+const SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7일
+
+// 같은 세션 안에서 cwd가 바뀌어도(예: 다른 폴더 파일 작업) 세션 최초 cwd 기준
+// 프로젝트 이름을 그대로 유지하기 위한 캐시
+export function getStableProjectName(sessionId: string, cwd: string): string {
+  const filePath = path.join(SESSION_EDITS_DIR, `${sessionId}.project.json`);
+
+  try {
+    if (fs.existsSync(filePath)) {
+      const cached = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      if (cached.projectName) return cached.projectName;
+    }
+  } catch {
+    // 손상된 캐시는 무시하고 재계산
+  }
+
+  const projectName = extractProjectName(cwd);
+  try {
+    fs.mkdirSync(SESSION_EDITS_DIR, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ projectName, cwd }), 'utf-8');
+  } catch {
+    // 캐시 저장 실패는 이번 실행에만 영향
+  }
+  return projectName;
+}
+
+// 오래된 세션 캐시 파일 누적 방지
+export function cleanupStaleSessionProjectCache(): void {
+  try {
+    if (!fs.existsSync(SESSION_EDITS_DIR)) return;
+    const now = Date.now();
+    for (const file of fs.readdirSync(SESSION_EDITS_DIR)) {
+      if (!file.endsWith('.project.json')) continue;
+      const filePath = path.join(SESSION_EDITS_DIR, file);
+      if (now - fs.statSync(filePath).mtimeMs > SESSION_PROJECT_CACHE_MAX_AGE_MS) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  } catch {
+    // 정리 실패는 무시
+  }
+}
+
 // focus.files와 exclude.files에 같은 프로젝트가 있으면 focus가 우선 (포함)
 export function shouldTrackProject(config: Config, projectName: string): boolean {
   if (config.focus.use) {

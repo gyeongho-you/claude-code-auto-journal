@@ -2,10 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import {
-  extractProjectName,
+  cleanupStaleSessionProjectCache,
   getDateString,
   getDateStringWithHourMinutes,
   getNowMinutes,
+  getStableProjectName,
   getTodayDir,
   loadConfig,
   loadGitHooks,
@@ -145,7 +146,8 @@ function main(): void {
 
   const config = loadConfig();
 
-  const projectName = extractProjectName(cwd);
+  cleanupStaleSessionProjectCache();
+  const projectName = getStableProjectName(session_id, cwd);
 
   if (!shouldTrackProject(config, projectName)) {
      return;

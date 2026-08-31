@@ -104,6 +104,7 @@ function loadConfig() {
     return defaultConfig;
   }
 }
+var SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
 function getDateStringWithHourMinutesSeconds(timeZone) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,

@@ -34,6 +34,7 @@ var PLUGIN_DIR = path.join(os.homedir(), ".claude", "plugins", "daily-journal");
 var GIT_HOOKS_PATH = path.join(DATA_DIR, "git-hooks.json");
 var SESSION_EDITS_DIR = path.join(os.homedir(), ".claude", "session-edits");
 var DEFAULT_OUTPUT_DIR = path.join(DATA_DIR, "data");
+var SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
 
 // src/file-edit-hook.ts
 function readState(sessionId) {
