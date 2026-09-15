@@ -405,6 +405,7 @@ function main() {
     return;
   }
   if (!last_assistant_message) {
+    logError(`last_assistant_message \uC5C6\uC74C (session: ${session_id}), \uC774\uBC88 \uD134 \uAE30\uB85D skip`);
     readAndClearSessionEdits(session_id);
     return;
   }

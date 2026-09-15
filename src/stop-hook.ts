@@ -163,6 +163,9 @@ function main(): void {
   }
 
   if (!last_assistant_message) {
+    // 턴이 텍스트 응답 없이 tool_use로만 끝나면(백그라운드 작업 실행/task-notification 처리 중 등)
+    // 여기서 조용히 skip되어 해당 턴 전체가 journal에 기록되지 않는다. 원인 추적을 위해 로그를 남긴다.
+    logError(`last_assistant_message 없음 (session: ${session_id}), 이번 턴 기록 skip`);
     readAndClearSessionEdits(session_id);
     return;
   }
