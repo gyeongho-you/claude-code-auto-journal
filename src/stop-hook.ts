@@ -162,11 +162,6 @@ function main(): void {
     return;
   }
 
-  if (!last_assistant_message) {
-    readAndClearSessionEdits(session_id);
-    return;
-  }
-
   let prompt = getLastUserMessage(transcript_path);
   if (!prompt) {
     logError(`user 메시지 추출 실패 (session: ${session_id}), skip`);
@@ -182,7 +177,10 @@ function main(): void {
   let summary = ""
 
   // 요약 사용 여부에 따라 대화내용 요약본을 생성할지 결정
-  if(config.summary.use){
+  // last_assistant_message가 빈 텍스트(도구 호출만 하고 턴이 끝난 경우)인 경우에는
+  // 요약할 내용이 없으므로 summarize() 호출(서브 claude 프로세스 실행)을 건너뛴다.
+  // (실제로 호출해보면 "No content provided." 같은 형식에 안 맞는 응답이 나옴)
+  if(config.summary.use && last_assistant_message){
     summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel)
 
     if(summary.trim().toUpperCase() === 'SKIP') {
