@@ -404,11 +404,6 @@ function main() {
     readAndClearSessionEdits(session_id);
     return;
   }
-  if (!last_assistant_message) {
-    logError(`last_assistant_message \uC5C6\uC74C (session: ${session_id}), \uC774\uBC88 \uD134 \uAE30\uB85D skip`);
-    readAndClearSessionEdits(session_id);
-    return;
-  }
   let prompt = getLastUserMessage(transcript_path);
   if (!prompt) {
     logError(`user \uBA54\uC2DC\uC9C0 \uCD94\uCD9C \uC2E4\uD328 (session: ${session_id}), skip`);
@@ -419,7 +414,7 @@ function main() {
     prompt = "skill \uC0AC\uC6A9 \n" + prompt.split("\n")[0];
   }
   let summary = "";
-  if (config.summary.use) {
+  if (config.summary.use && last_assistant_message) {
     summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel);
     if (summary.trim().toUpperCase() === "SKIP") {
       readAndClearSessionEdits(session_id);
