@@ -36,31 +36,85 @@ function isInTimeRange(start: string, end: string, timeZone: string): boolean {
   return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
 }
 
-function getLastUserMessage(transcriptPath: string): string | null {
+// answer 필드가 무거워지지 않도록 두는 상한선. 대부분의 턴은 텍스트 조각이 1~3개뿐이라
+// 실질적으로 잘리지 않고, 도구 호출을 아주 많이 반복하는 예외적인 턴에서만 개입한다.
+const MAX_ANSWER_SEGMENTS = 10;
+const MAX_ANSWER_CHARS = 6000;
+
+type CurrentTurn = {
+  prompt: string | null;
+  assistantTexts: string[];
+};
+
+// transcript_path는 이번 턴만이 아니라 세션 전체의 JSONL 기록이며, user/assistant 외에도
+// attachment/system/cost-state 등 훅과 무관한 라인이 섞여 있다. 여기서는 "진짜" user 턴
+// 경계(문자열 content 또는 text 파트가 있는 경우 - tool_result만 있는 user 라인은 제외)를
+// 마지막으로 찾고, 그 이후에 나온 assistant의 text 파트들을 시간순으로 모두 모은다.
+function extractCurrentTurn(transcriptPath: string): CurrentTurn {
+  let lines: string[];
   try {
     const content = fs.readFileSync(transcriptPath, 'utf-8');
-    const lines = content.trim().split('\n').filter(Boolean);
-
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const entry: TranscriptLine = JSON.parse(lines[i]);
-        if (entry.type === 'user' && entry.message?.content) {
-          const messageContent = entry.message.content;
-          if (typeof messageContent === 'string') return messageContent;
-          if (Array.isArray(messageContent)) {
-            const textPart = messageContent.find(p => p.type === 'text');
-            if (textPart?.text) return textPart.text;
-            // bash 명령어 등 사용시 tool_result만 존재함. 그 경우 가장 최근 유저 text를 확인하기 위해 역방향 탐색
-          }
-        }
-      } catch (e) {
-        logError("손상된 history Skip: " + lines[i] + "");
-      }
-    }
+    lines = content.trim().split('\n').filter(Boolean);
   } catch (e) {
     logError(`transcript 파싱 실패: ${e}`);
+    return { prompt: null, assistantTexts: [] };
   }
-  return null;
+
+  const entries: (TranscriptLine | null)[] = lines.map(line => {
+    try {
+      return JSON.parse(line) as TranscriptLine;
+    } catch (e) {
+      logError("손상된 history Skip: " + line);
+      return null;
+    }
+  });
+
+  let prompt: string | null = null;
+  let lastUserIndex = -1;
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || entry.type !== 'user' || !entry.message?.content) continue;
+
+    const messageContent = entry.message.content;
+    if (typeof messageContent === 'string') {
+      prompt = messageContent;
+      lastUserIndex = i;
+    } else if (Array.isArray(messageContent)) {
+      const textPart = messageContent.find(p => p.type === 'text');
+      if (textPart?.text) {
+        prompt = textPart.text;
+        lastUserIndex = i;
+      }
+      // tool_result만 있는 user 엔트리는 진짜 턴 경계가 아니므로 무시하고 계속 탐색
+    }
+  }
+
+  const assistantTexts: string[] = [];
+  for (let i = lastUserIndex + 1; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry?.type !== 'assistant' || !Array.isArray(entry.message?.content)) continue;
+    for (const part of entry.message.content) {
+      if (part.type === 'text' && part.text) assistantTexts.push(part.text);
+    }
+  }
+
+  return { prompt, assistantTexts };
+}
+
+// 이번 턴의 assistant 텍스트 조각들을 시간순으로 이어붙이되, 세그먼트 개수와 전체 길이를 제한한다.
+// 마지막 조각(= 기존 last_assistant_message에 해당)은 항상 최대한 온전히 보존한다.
+function buildAnswer(assistantTexts: string[]): string {
+  if (assistantTexts.length === 0) return '';
+
+  const recent = assistantTexts.length > MAX_ANSWER_SEGMENTS
+    ? assistantTexts.slice(-MAX_ANSWER_SEGMENTS)
+    : assistantTexts;
+
+  const joined = recent.join('\n\n');
+  if (joined.length <= MAX_ANSWER_CHARS) return joined;
+
+  return '...(앞부분 생략)...\n\n' + joined.slice(joined.length - MAX_ANSWER_CHARS);
 }
 
 function buildDailyJournalBlock(gitCommitHookJsPath: string): string {
@@ -162,7 +216,8 @@ function main(): void {
     return;
   }
 
-  let prompt = getLastUserMessage(transcript_path);
+  const { prompt: extractedPrompt, assistantTexts } = extractCurrentTurn(transcript_path);
+  let prompt = extractedPrompt;
   if (!prompt) {
     logError(`user 메시지 추출 실패 (session: ${session_id}), skip`);
     readAndClearSessionEdits(session_id);
@@ -174,14 +229,18 @@ function main(): void {
     prompt = "skill 사용 \n" + prompt.split('\n')[0];
   }
 
+  // transcript에서 텍스트를 하나도 못 찾은 경우(예: transcript 아직 flush 전)에 한해
+  // payload가 넘겨준 last_assistant_message를 안전망으로 사용한다.
+  const answer = buildAnswer(assistantTexts.length > 0 ? assistantTexts : (last_assistant_message ? [last_assistant_message] : []));
+
   let summary = ""
 
   // 요약 사용 여부에 따라 대화내용 요약본을 생성할지 결정
-  // last_assistant_message가 빈 텍스트(도구 호출만 하고 턴이 끝난 경우)인 경우에는
+  // answer가 빈 텍스트(도구 호출만 하고 턴이 텍스트 응답 없이 끝난 경우)인 경우에는
   // 요약할 내용이 없으므로 summarize() 호출(서브 claude 프로세스 실행)을 건너뛴다.
   // (실제로 호출해보면 "No content provided." 같은 형식에 안 맞는 응답이 나옴)
-  if(config.summary.use && last_assistant_message){
-    summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel)
+  if(config.summary.use && answer){
+    summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, answer, config.summary.claudeModel)
 
     if(summary.trim().toUpperCase() === 'SKIP') {
       readAndClearSessionEdits(session_id);
@@ -200,7 +259,7 @@ function main(): void {
     time,
     prompt,
     summary,
-    answer: last_assistant_message,
+    answer,
     sessionId: session_id,
     ...(fileEdits.length > 0 ? { fileEdits } : {}),
   };

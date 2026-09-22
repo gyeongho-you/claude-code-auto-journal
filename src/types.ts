@@ -76,10 +76,12 @@ export type RunHistoryEntry = {
 };
 
 export type TranscriptLine = {
-  type: 'user' | 'assistant' | 'summary';
+  // 실제 transcript 파일에는 이 외에도 attachment/system/cost-state 등 다양한 타입이 섞여 있으나
+  // 여기서는 이 훅이 실제로 다루는 타입만 좁혀서 선언한다.
+  type: 'user' | 'assistant' | 'summary' | string;
   message?: {
     role: string;
-    content: string | Array<{ type: string; text: string }>;
+    content: string | Array<{ type: string; text?: string }>;
   };
   timestamp?: string;
 };

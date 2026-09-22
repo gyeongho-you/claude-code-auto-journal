@@ -293,29 +293,58 @@ function isInTimeRange(start, end, timeZone) {
   }
   return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
 }
-function getLastUserMessage(transcriptPath) {
+var MAX_ANSWER_SEGMENTS = 10;
+var MAX_ANSWER_CHARS = 6e3;
+function extractCurrentTurn(transcriptPath) {
+  let lines;
   try {
     const content = fs3.readFileSync(transcriptPath, "utf-8");
-    const lines = content.trim().split("\n").filter(Boolean);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const entry = JSON.parse(lines[i]);
-        if (entry.type === "user" && entry.message?.content) {
-          const messageContent = entry.message.content;
-          if (typeof messageContent === "string") return messageContent;
-          if (Array.isArray(messageContent)) {
-            const textPart = messageContent.find((p) => p.type === "text");
-            if (textPart?.text) return textPart.text;
-          }
-        }
-      } catch (e) {
-        logError("\uC190\uC0C1\uB41C history Skip: " + lines[i]);
-      }
-    }
+    lines = content.trim().split("\n").filter(Boolean);
   } catch (e) {
     logError(`transcript \uD30C\uC2F1 \uC2E4\uD328: ${e}`);
+    return { prompt: null, assistantTexts: [] };
   }
-  return null;
+  const entries = lines.map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch (e) {
+      logError("\uC190\uC0C1\uB41C history Skip: " + line);
+      return null;
+    }
+  });
+  let prompt = null;
+  let lastUserIndex = -1;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || entry.type !== "user" || !entry.message?.content) continue;
+    const messageContent = entry.message.content;
+    if (typeof messageContent === "string") {
+      prompt = messageContent;
+      lastUserIndex = i;
+    } else if (Array.isArray(messageContent)) {
+      const textPart = messageContent.find((p) => p.type === "text");
+      if (textPart?.text) {
+        prompt = textPart.text;
+        lastUserIndex = i;
+      }
+    }
+  }
+  const assistantTexts = [];
+  for (let i = lastUserIndex + 1; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry?.type !== "assistant" || !Array.isArray(entry.message?.content)) continue;
+    for (const part of entry.message.content) {
+      if (part.type === "text" && part.text) assistantTexts.push(part.text);
+    }
+  }
+  return { prompt, assistantTexts };
+}
+function buildAnswer(assistantTexts) {
+  if (assistantTexts.length === 0) return "";
+  const recent = assistantTexts.length > MAX_ANSWER_SEGMENTS ? assistantTexts.slice(-MAX_ANSWER_SEGMENTS) : assistantTexts;
+  const joined = recent.join("\n\n");
+  if (joined.length <= MAX_ANSWER_CHARS) return joined;
+  return "...(\uC55E\uBD80\uBD84 \uC0DD\uB7B5)...\n\n" + joined.slice(joined.length - MAX_ANSWER_CHARS);
 }
 function buildDailyJournalBlock(gitCommitHookJsPath) {
   const nodePath = gitCommitHookJsPath.replace(/\\/g, "/");
@@ -404,7 +433,8 @@ function main() {
     readAndClearSessionEdits(session_id);
     return;
   }
-  let prompt = getLastUserMessage(transcript_path);
+  const { prompt: extractedPrompt, assistantTexts } = extractCurrentTurn(transcript_path);
+  let prompt = extractedPrompt;
   if (!prompt) {
     logError(`user \uBA54\uC2DC\uC9C0 \uCD94\uCD9C \uC2E4\uD328 (session: ${session_id}), skip`);
     readAndClearSessionEdits(session_id);
@@ -413,9 +443,10 @@ function main() {
   if (prompt.startsWith("Base directory for this skill:")) {
     prompt = "skill \uC0AC\uC6A9 \n" + prompt.split("\n")[0];
   }
+  const answer = buildAnswer(assistantTexts.length > 0 ? assistantTexts : last_assistant_message ? [last_assistant_message] : []);
   let summary = "";
-  if (config.summary.use && last_assistant_message) {
-    summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, last_assistant_message, config.summary.claudeModel);
+  if (config.summary.use && answer) {
+    summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, answer, config.summary.claudeModel);
     if (summary.trim().toUpperCase() === "SKIP") {
       readAndClearSessionEdits(session_id);
       return;
@@ -430,7 +461,7 @@ function main() {
     time,
     prompt,
     summary,
-    answer: last_assistant_message,
+    answer,
     sessionId: session_id,
     ...fileEdits.length > 0 ? { fileEdits } : {}
   };
