@@ -71,7 +71,8 @@ function readSettingsOrThrow(): Record<string, unknown> {
 }
 
 function writeSettingsWithBackup(settings: Record<string, unknown>): void {
-  if (fs.existsSync(SETTINGS_PATH)) {
+  // 최초 원본을 보존하기 위해 .bak이 이미 있으면 덮어쓰지 않는다(setup은 멱등이라 반복 실행됨)
+  if (fs.existsSync(SETTINGS_PATH) && !fs.existsSync(`${SETTINGS_PATH}.bak`)) {
     fs.copyFileSync(SETTINGS_PATH, `${SETTINGS_PATH}.bak`);
   }
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
@@ -349,7 +350,12 @@ function removeGitHooks(): void {
 
 export function uninstall(): void {
   // 1. Stop 훅 삭제
-  removeClaudeSetting();
+  try {
+    removeClaudeSetting();
+  } catch (e) {
+    // settings.json을 못 읽어도 스케줄러/git hook 정리는 계속 진행한다
+    console.error(`! Claude 설정 정리 실패(나머지 제거는 계속합니다): ${e}`);
+  }
 
   // 2. 스케쥴러 삭제
   console.log('스케줄러 제거.')

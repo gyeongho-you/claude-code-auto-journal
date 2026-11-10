@@ -8,6 +8,7 @@ import {
   getNowMinutes,
   getStableProjectName,
   getTodayDir,
+  isInternalJudgePrompt,
   loadConfig,
   loadGitHooks,
   logError,
@@ -75,6 +76,8 @@ function extractCurrentTurn(transcriptPath: string): CurrentTurn {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     if (!entry || entry.type !== 'user' || !entry.message?.content) continue;
+    // 서브에이전트 대화(sidechain)와 시스템이 넣은 meta 라인은 사용자 턴 경계가 아니다
+    if (entry.isSidechain || entry.isMeta) continue;
 
     const messageContent = entry.message.content;
     if (typeof messageContent === 'string') {
@@ -93,7 +96,7 @@ function extractCurrentTurn(transcriptPath: string): CurrentTurn {
   const assistantTexts: string[] = [];
   for (let i = lastUserIndex + 1; i < entries.length; i++) {
     const entry = entries[i];
-    if (entry?.type !== 'assistant' || !Array.isArray(entry.message?.content)) continue;
+    if (entry?.type !== 'assistant' || entry.isSidechain || !Array.isArray(entry.message?.content)) continue;
     for (const part of entry.message.content) {
       if (part.type === 'text' && part.text) assistantTexts.push(part.text);
     }
@@ -147,12 +150,25 @@ function tryRegisterGitHook(cwd: string, projectName: string, config: Config): v
   const timestamp = new Date().toISOString();
 
   try {
+    // core.hooksPath가 저장소 안의 추적 폴더(예: .husky)를 가리키면 팀 공용 파일을 수정하게 되므로 등록하지 않는다
+    let gitCommonDir = path.join(repoRoot, '.git');
+    try {
+      gitCommonDir = path.resolve(repoRoot, execSync(`git -C "${repoRoot}" rev-parse --git-common-dir`, { encoding: 'utf-8' }).trim());
+    } catch { /* 기본값 사용 */ }
+    const rel = (from: string, to: string) => path.relative(from, to);
+    const insideRepo = !rel(repoRoot, hookPath).startsWith('..') && !path.isAbsolute(rel(repoRoot, hookPath));
+    const insideGitDir = !rel(gitCommonDir, hookPath).startsWith('..') && !path.isAbsolute(rel(gitCommonDir, hookPath));
+    if (insideRepo && !insideGitDir) {
+      throw new Error(`hooks 경로(${hookPath})가 저장소 추적 폴더 안이라 자동 등록하지 않음(core.hooksPath)`);
+    }
+
     const block = buildDailyJournalBlock(gitCommitHookJsPath);
     let content = '';
 
     if (fs.existsSync(hookPath)) {
       content = fs.readFileSync(hookPath, 'utf-8');
-      if (content.includes(GIT_HOOK_MARKER_BEGIN)) {
+      // 마커 방식 이전의 레거시 훅(스크립트 경로만 있음)도 등록된 것으로 본다(이중 등록 방지)
+      if (content.includes(GIT_HOOK_MARKER_BEGIN) || content.includes('git-commit-hook.js')) {
         hooks[projectName] = { status: 'registered', timestamp, hookPath };
         saveGitHooks(hooks);
         return;
@@ -178,45 +194,32 @@ function tryRegisterGitHook(cwd: string, projectName: string, config: Config): v
 
 function summarize(defaultPrompt: string, stylePrompt: string, response: string, model: ClaudeModel): string {
   const input = `${defaultPrompt}\n${stylePrompt}\n\n<content>\n${neutralizeFence(response)}\n</content>`;
-  const result = callClaude(input, model);
+  // Stop 훅 자체의 제한 시간(기본 60초) 안에 끝나야 기록이 남으므로 요약은 짧은 타임아웃을 쓴다
+  const result = callClaude(input, model, SUMMARY_TIMEOUT_MS);
 
   if (result.error || result.status !== 0) {
     throw new Error(describeFailure(result));
   }
-  return result.stdout.trim();
+  return sanitizeSummary(result.stdout);
 }
 
-// Claude Team Monitor 등 외부 프로그램이 던지는 내부 판단용 프롬프트(사용자 작업이 아님)
-function isInternalJudgePrompt(prompt: string): boolean {
-  return prompt.includes('shouldNudge') && prompt.includes('JSON');
-}
+const SUMMARY_TIMEOUT_MS = 45_000;
+const MAX_SUMMARY_CHARS = 3000;
 
-// 같은 세션·같은 시각·같은 프롬프트가 이미 마지막 줄에 있으면 중복 기록(훅 이중 발화 등)으로 본다
-function isDuplicateOfLast(filePath: string, entry: HistoryEntry): boolean {
-  try {
-    if (!fs.existsSync(filePath)) return false;
-    const size = fs.statSync(filePath).size;
-    const readLen = Math.min(size, 256 * 1024);
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const buf = Buffer.alloc(readLen);
-      fs.readSync(fd, buf, 0, readLen, size - readLen);
-      const lines = buf.toString('utf-8').split('\n').filter(Boolean);
-      const last = lines[lines.length - 1];
-      if (!last) return false;
-      const prev = JSON.parse(last) as HistoryEntry;
-      return prev.sessionId === entry.sessionId && prev.time === entry.time && prev.prompt === entry.prompt;
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return false;
-  }
+// 요약이 아닌 응답(빈 응답, 거절/안내 문구, JSON, 지나치게 긴 응답)은 비워서 원문(answer)으로 대체되게 한다.
+// 'SKIP'은 호출부가 그대로 판별해야 하므로 보존한다.
+function sanitizeSummary(raw: string): string {
+  const t = (raw || '').trim();
+  if (!t) return '';
+  if (t.toUpperCase() === 'SKIP') return 'SKIP';
+  if (/^(no content|no text|i (can'?t|cannot|don'?t)|sorry|죄송|내용이 (없|제공))/i.test(t)) return '';
+  if ((t.startsWith('{') || t.startsWith('[')) && (() => { try { JSON.parse(t); return true; } catch { return false; } })()) return '';
+  return t.length > MAX_SUMMARY_CHARS ? t.slice(0, MAX_SUMMARY_CHARS) + '…' : t;
 }
 
 function main(): void {
   // summarize()에서 호출한 claude --print 종료 시 재진입 방지
-  if (process.env.DAILY_JOURNAL_RUNNING) {
+  if (process.env.DAILY_JOURNAL_RUNNING === '1') {
     return;
   }
 
@@ -231,6 +234,11 @@ function main(): void {
   }
 
   const { session_id, cwd, last_assistant_message, transcript_path } = payload;
+
+  // 서브 claude(요약/일지 변환) 전용 작업 폴더에서 끝난 세션은 환경변수가 유실돼도 기록하지 않는다(재진입 이중 방어)
+  if ((cwd || '').replace(/\\/g, '/').includes('/.claude/daily-journal/_runner')) {
+    return;
+  }
 
   const config = loadConfig();
 
@@ -276,7 +284,14 @@ function main(): void {
 
   // transcript에서 텍스트를 하나도 못 찾은 경우(예: transcript 아직 flush 전)에 한해
   // payload가 넘겨준 last_assistant_message를 안전망으로 사용한다.
-  const answer = buildAnswer(assistantTexts.length > 0 ? assistantTexts : (last_assistant_message ? [last_assistant_message] : []));
+  // transcript flush가 늦어 마지막 조각만 빠진 경우도 보완한다(마지막 조각이 payload 메시지를 포함하지 않으면 덧붙임).
+  const texts = [...assistantTexts];
+  if (last_assistant_message) {
+    const tail = texts[texts.length - 1] ?? '';
+    const probe = last_assistant_message.trim().slice(0, 200);
+    if (texts.length === 0 || (probe && !tail.includes(probe))) texts.push(last_assistant_message);
+  }
+  const answer = buildAnswer(texts);
 
   let summary = ""
 
@@ -315,12 +330,9 @@ function main(): void {
     ...(fileEdits.length > 0 ? { fileEdits } : {}),
   };
 
-  const historyFile = path.join(historyDir, `${projectName}.jsonl`);
-  if (isDuplicateOfLast(historyFile, entry)) {
-    return; // 훅 이중 발화 등으로 같은 턴이 두 번 들어온 경우
-  }
-
-  fs.appendFileSync(historyFile, JSON.stringify(entry) + '\n');
+  // (중복 방지는 두지 않는다: 같은 세션이 같은 분에 같은 말을 반복하는 정상 턴을 버리게 되고,
+  //  answer까지 동일한 실제 이중 발화는 기록상 확인되지 않았다)
+  fs.appendFileSync(path.join(historyDir, `${projectName}.jsonl`), JSON.stringify(entry) + '\n');
 
   // 이미 일지가 생성된 날에 새 대화가 추가되면 modified로 변경
   recordRunHistory({ date: getDateString(config.timeZone), status: 'modified', timestamp: new Date().toISOString() });

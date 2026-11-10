@@ -85,10 +85,13 @@ export type TranscriptLine = {
     content: string | Array<{ type: string; text?: string }>;
   };
   timestamp?: string;
+  isSidechain?: boolean; // 서브에이전트 대화
+  isMeta?: boolean;      // 시스템이 넣은 메타 라인(스킬 확장 본문 등)
 };
 
 export type PostToolUsePayload = {
   session_id: string;
+  cwd?: string;
   tool_name: string;
   tool_input: {
     file_path?: string;

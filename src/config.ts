@@ -34,6 +34,14 @@ function resolveTimeZone(candidate: unknown, fallback: string): string {
   }
 }
 
+// Claude Team Monitor의 "팀장 방치 판단" 내부 호출 프롬프트는 고정 문구로 시작한다.
+// 본문 어디든 키워드가 있는지가 아니라 시작 문구로만 판정한다(해당 키워드를 논하는 정상 작업 프롬프트를 오탐하지 않도록).
+const INTERNAL_JUDGE_PROMPT_PREFIX = '당신은 팀장 세션이 방치되고 있는지 판단하는 보조 도구입니다';
+
+export function isInternalJudgePrompt(prompt: string): boolean {
+  return prompt.trimStart().startsWith(INTERNAL_JUDGE_PROMPT_PREFIX);
+}
+
 function stripBom(text: string): string {
   return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
 }
@@ -77,8 +85,10 @@ export function loadConfig(): Config {
 
 export function extractProjectName(cwd: string): string {
   if (!cwd) return '_unknown';
-  const parts = cwd.replace(/\\/g, '/').split('/');
-  return parts[parts.length - 1] || '_unknown';
+  // 끝의 구분자 제거, 드라이브 문자(C:)·파일명에 쓸 수 없는 문자 정리
+  const parts = cwd.replace(/\\/g, '/').split('/').filter(Boolean);
+  const last = (parts[parts.length - 1] ?? '').replace(/[:*?"<>|]/g, '');
+  return last || '_unknown';
 }
 
 const SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7일
@@ -207,9 +217,46 @@ function readRunHistory(historyPath: string): Record<string, RunHistoryEntry> {
 // 일지작성에 대한 상태값인지 확인
 const isGenerateStatus = (s: string) => ['success', 'failed', 'no_data'].includes(s);
 
+// 디렉터리 생성(원자적)을 이용한 간단한 파일 락. 동시에 도는 훅/생성기의 읽기-수정-쓰기 경합을 줄인다.
+// 락을 못 잡아도(타임아웃) 기록 자체를 포기하지 않고 진행한다.
+function withFileLock<T>(lockPath: string, fn: () => T): T {
+  const STALE_MS = 10_000;
+  const MAX_WAIT_MS = 2_000;
+  const started = Date.now();
+  let locked = false;
+  while (!locked) {
+    try {
+      fs.mkdirSync(lockPath);
+      locked = true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') break; // 락 생성 자체가 불가능하면 락 없이 진행
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > STALE_MS) { fs.rmdirSync(lockPath); continue; } // 죽은 프로세스의 락
+      } catch { continue; }
+      if (Date.now() - started > MAX_WAIT_MS) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    if (locked) { try { fs.rmdirSync(lockPath); } catch { /* ignore */ } }
+  }
+}
+
 export function recordRunHistory(entry: RunHistoryEntry): void {
   try {
+    // 잘못된 날짜 키('..' 등)가 run-history를 오염시키지 않도록 형식을 검증한다
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return;
     const historyPath = path.join(DATA_DIR, 'run-history.json');
+    withFileLock(`${historyPath}.lock`, () => updateRunHistory(historyPath, entry));
+  } catch {
+    // run-history 기록 실패는 무시
+  }
+}
+
+function updateRunHistory(historyPath: string, entry: RunHistoryEntry): void {
+  {
     const history = readRunHistory(historyPath);
     const oldHistory = history[entry.date];
 
@@ -218,11 +265,10 @@ export function recordRunHistory(entry: RunHistoryEntry): void {
       if (!oldHistory) {
         entry.status = 'create'; // 첫 기록
       } else if (!isGenerateStatus(oldHistory.status)) {
-        return; // 이미 create/modified 상태
+        return; // 이미 create/modified 상태(updateRunHistory를 종료)
       } else if (oldHistory.status === 'failed') {
-        // 실패 사유와 누적 실패 횟수는 보존(진단 정보 유실 방지)
+        // 실패 사유는 보존(진단 정보 유실 방지). 새 데이터가 들어왔으므로 실패 횟수는 초기화해 다시 시도할 수 있게 한다.
         entry.error = oldHistory.error;
-        entry.attempts = oldHistory.attempts;
       }
     } else if (entry.status === 'failed') {
       entry.attempts = (oldHistory?.attempts ?? 0) + 1;
@@ -231,16 +277,15 @@ export function recordRunHistory(entry: RunHistoryEntry): void {
 
     history[entry.date] = entry;
     writeJsonAtomic(historyPath, history);
-  } catch {
-    // run-history 기록 실패는 무시
   }
 }
 
-export function loadRunHistoryEntry(date: string): RunHistoryEntry | undefined {
+// run-history 전체를 한 번만 읽어 재사용할 때 쓴다(날짜마다 읽으면 손상 시 백업/로그가 반복된다)
+export function loadAllRunHistory(): Record<string, RunHistoryEntry> {
   try {
-    return readRunHistory(path.join(DATA_DIR, 'run-history.json'))[date];
+    return readRunHistory(path.join(DATA_DIR, 'run-history.json'));
   } catch {
-    return undefined;
+    return {};
   }
 }
 

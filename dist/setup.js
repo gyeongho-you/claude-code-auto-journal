@@ -195,7 +195,7 @@ function readSettingsOrThrow() {
   }
 }
 function writeSettingsWithBackup(settings) {
-  if (fs2.existsSync(SETTINGS_PATH)) {
+  if (fs2.existsSync(SETTINGS_PATH) && !fs2.existsSync(`${SETTINGS_PATH}.bak`)) {
     fs2.copyFileSync(SETTINGS_PATH, `${SETTINGS_PATH}.bak`);
   }
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
@@ -423,7 +423,11 @@ function removeGitHooks() {
   console.log("\u2713 git hook \uB4F1\uB85D \uAE30\uB85D \uC0AD\uC81C \uC644\uB8CC");
 }
 function uninstall() {
-  removeClaudeSetting();
+  try {
+    removeClaudeSetting();
+  } catch (e) {
+    console.error(`! Claude \uC124\uC815 \uC815\uB9AC \uC2E4\uD328(\uB098\uBA38\uC9C0 \uC81C\uAC70\uB294 \uACC4\uC18D\uD569\uB2C8\uB2E4): ${e}`);
+  }
   console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
   unregisterTaskScheduler();
   removeGitHooks();

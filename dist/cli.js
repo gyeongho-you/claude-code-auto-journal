@@ -71,6 +71,10 @@ function resolveTimeZone(candidate, fallback) {
     return fallback;
   }
 }
+var INTERNAL_JUDGE_PROMPT_PREFIX = "\uB2F9\uC2E0\uC740 \uD300\uC7A5 \uC138\uC158\uC774 \uBC29\uCE58\uB418\uACE0 \uC788\uB294\uC9C0 \uD310\uB2E8\uD558\uB294 \uBCF4\uC870 \uB3C4\uAD6C\uC785\uB2C8\uB2E4";
+function isInternalJudgePrompt(prompt) {
+  return prompt.trimStart().startsWith(INTERNAL_JUDGE_PROMPT_PREFIX);
+}
 function stripBom(text) {
   return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
 }
@@ -110,8 +114,9 @@ function loadConfig() {
 }
 function extractProjectName(cwd) {
   if (!cwd) return "_unknown";
-  const parts = cwd.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || "_unknown";
+  const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+  const last = (parts[parts.length - 1] ?? "").replace(/[:*?"<>|]/g, "");
+  return last || "_unknown";
 }
 var SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
 function shouldTrackProject(config, projectName) {
@@ -159,9 +164,50 @@ function readRunHistory(historyPath) {
   }
 }
 var isGenerateStatus = (s) => ["success", "failed", "no_data"].includes(s);
+function withFileLock(lockPath, fn) {
+  const STALE_MS = 1e4;
+  const MAX_WAIT_MS = 2e3;
+  const started = Date.now();
+  let locked = false;
+  while (!locked) {
+    try {
+      fs.mkdirSync(lockPath);
+      locked = true;
+    } catch (e) {
+      if (e.code !== "EEXIST") break;
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > STALE_MS) {
+          fs.rmdirSync(lockPath);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - started > MAX_WAIT_MS) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    if (locked) {
+      try {
+        fs.rmdirSync(lockPath);
+      } catch {
+      }
+    }
+  }
+}
 function recordRunHistory(entry) {
   try {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return;
     const historyPath = path.join(DATA_DIR, "run-history.json");
+    withFileLock(`${historyPath}.lock`, () => updateRunHistory(historyPath, entry));
+  } catch {
+  }
+}
+function updateRunHistory(historyPath, entry) {
+  {
     const history = readRunHistory(historyPath);
     const oldHistory = history[entry.date];
     if (!isGenerateStatus(entry.status)) {
@@ -171,21 +217,19 @@ function recordRunHistory(entry) {
         return;
       } else if (oldHistory.status === "failed") {
         entry.error = oldHistory.error;
-        entry.attempts = oldHistory.attempts;
       }
     } else if (entry.status === "failed") {
       entry.attempts = (oldHistory?.attempts ?? 0) + 1;
     }
     history[entry.date] = entry;
     writeJsonAtomic(historyPath, history);
-  } catch {
   }
 }
-function loadRunHistoryEntry(date) {
+function loadAllRunHistory() {
   try {
-    return readRunHistory(path.join(DATA_DIR, "run-history.json"))[date];
+    return readRunHistory(path.join(DATA_DIR, "run-history.json"));
   } catch {
-    return void 0;
+    return {};
   }
 }
 function loadGitHooks() {
@@ -279,16 +323,15 @@ function isTimeout(result) {
   return code === "ETIMEDOUT" || result.signal === "SIGTERM";
 }
 var q = (p) => `"${p}"`;
-function callClaude(input, model) {
+function callClaude(input, model, timeoutMs = 18e4) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  const claudeCmd = process.platform === "win32" ? "chcp 65001 >nul 2>&1 && claude" : "claude";
   const mcpPath = ensureTempFile("daily-journal-empty-mcp", "json", JSON.stringify({ mcpServers: {} }));
   const spPath = ensureTempFile("daily-journal-system-prompt", "txt", SYSTEM_PROMPT);
-  const result = (0, import_child_process.spawnSync)(claudeCmd, [
+  const baseArgs = (quote) => [
     "--print",
     "--model",
     claudeModel,
@@ -297,28 +340,38 @@ function callClaude(input, model) {
     "--output-format",
     "text",
     "--mcp-config",
-    q(mcpPath),
+    quote(mcpPath),
     "--strict-mcp-config",
     "--setting-sources",
     "local",
     "--disable-slash-commands",
+    "--no-session-persistence",
+    // 변환 호출마다 transcript가 쌓이지 않게 한다
     "--system-prompt-file",
-    q(spPath)
-  ], {
+    quote(spPath)
+  ];
+  const baseOptions = {
     input,
     encoding: "utf-8",
-    timeout: 18e4,
-    shell: true,
+    timeout: timeoutMs,
     env,
     cwd: getRunnerDir(),
     maxBuffer: 64 * 1024 * 1024
-  });
-  const stdout = (result.stdout || "").trim() ? result.stdout : result.stderr;
+  };
+  let result = (0, import_child_process.spawnSync)("claude", baseArgs((p) => p), { ...baseOptions, shell: false });
+  if (result.error?.code === "ENOENT" && process.platform === "win32") {
+    result = (0, import_child_process.spawnSync)("chcp 65001 >nul 2>&1 && claude", baseArgs(q), { ...baseOptions, shell: true });
+  }
+  const stdout = (result.stdout || "").trim() ? result.stdout : stripCliNoise(result.stderr || "");
   return { ...result, stdout };
+}
+function stripCliNoise(text) {
+  return text.split("\n").filter((l) => !/^\s*(Permission allow rule|Warning:|\(node:\d+\) )/.test(l)).join("\n");
 }
 
 // src/generate-journal.ts
-var MAX_DATA_TOKENS = 14e4;
+var MAX_DATA_TOKENS = 4e4;
+var GENERATE_TIMEOUT_MS = 3e5;
 function estimateTokens(text) {
   return Math.ceil(text.length / 2.5);
 }
@@ -329,7 +382,8 @@ function extractJsonObjects(content) {
     if (!trimmed) continue;
     try {
       const raw = JSON.parse(trimmed);
-      if (!raw || typeof raw !== "object") throw new Error("object \uC544\uB2D8");
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("object \uC544\uB2D8");
+      if (typeof raw.time !== "string" || !raw.prompt && !raw.answer) throw new Error("\uD544\uC218 \uD544\uB4DC \uC5C6\uC74C");
       results.push({
         ...raw,
         time: typeof raw.time === "string" ? raw.time : "",
@@ -361,7 +415,7 @@ function calcDuration(currentTime, nextTime) {
     return h2 * 60 + m2;
   };
   const diff = toMinutes(nextTime) - toMinutes(currentTime);
-  if (diff <= 0) return "";
+  if (!Number.isFinite(diff) || diff <= 0) return "";
   if (diff < 60) return `${diff}\uBD84`;
   const h = Math.floor(diff / 60);
   const m = diff % 60;
@@ -371,9 +425,6 @@ var MAX_PROMPT_CHARS = 600;
 var MAX_BODY_CHARS = 1500;
 function clip(text, max) {
   return text.length > max ? text.slice(0, max) + "\u2026(\uC0DD\uB7B5)" : text;
-}
-function isInternalJudgePrompt(prompt) {
-  return prompt.includes("shouldNudge") && prompt.includes("JSON");
 }
 var INJECTED_PROMPT_PATTERN = /^\s*(\[알림\]|<task-notification>|This session is being continued|Caveat:|<command-name>|<local-command)/;
 function promptLabel(prompt) {
@@ -443,7 +494,7 @@ function summarizeChunk(chunkData, chunkIndex, totalChunks, model) {
 <data>
 ${neutralizeFence(chunkData)}
 </data>`;
-  const r = callWithRetry(input, model, (c) => c.trim().length >= 20 && !/^\s*[{[]/.test(c));
+  const r = callWithRetry(input, model, (c) => c.trim().length >= 20 && !isJsonLike(c.trim()));
   if ("error" in r) throw new Error(`\uCCAD\uD06C ${chunkIndex + 1}/${totalChunks} \uC2E4\uD328: ${r.error}`);
   return r.content;
 }
@@ -453,12 +504,12 @@ function escapeHtml(s) {
 var MAX_DIFF_LINES_PER_FILE = 200;
 var MAX_DIFF_FILES = 40;
 var MAX_DIFF_CHARS = 15e4;
+var MAX_DIFF_LINE_CHARS = 500;
 function formatDiffSection(showOutput) {
   const parts = showOutput.split(/^diff --git /m);
   const fileSections = parts.slice(1);
   if (fileSections.length === 0) return `<pre>${escapeHtml(showOutput.slice(0, MAX_DIFF_CHARS))}</pre>`;
-  const omittedFiles = Math.max(0, fileSections.length - MAX_DIFF_FILES);
-  const formatted = fileSections.slice(0, MAX_DIFF_FILES).map((section) => {
+  const formattedAll = fileSections.slice(0, MAX_DIFF_FILES).map((section) => {
     const lines = section.split("\n");
     const fileMatch = lines[0].match(/ b\/(.+)$/);
     const filename = fileMatch ? fileMatch[1] : lines[0];
@@ -466,7 +517,8 @@ function formatDiffSection(showOutput) {
     const allDiffLines = diffStartIdx !== -1 ? lines.slice(diffStartIdx) : lines.slice(1);
     const diffLines = allDiffLines.slice(0, MAX_DIFF_LINES_PER_FILE);
     const omittedLines = allDiffLines.length - diffLines.length;
-    const colored = diffLines.map((l) => {
+    const colored = diffLines.map((raw) => {
+      const l = raw.length > MAX_DIFF_LINE_CHARS ? raw.slice(0, MAX_DIFF_LINE_CHARS) + "\u2026" : raw;
       if (l.startsWith("+") && !l.startsWith("+++")) return `<span style="color:#22c55e">${escapeHtml(l)}</span>`;
       if (l.startsWith("-") && !l.startsWith("---")) return `<span style="color:#ef4444">${escapeHtml(l)}</span>`;
       if (l.startsWith("@@")) return `<span style="color:#60a5fa">${escapeHtml(l.replace(/^(@@ .+? @@).*$/, "$1"))}</span>`;
@@ -477,9 +529,16 @@ function formatDiffSection(showOutput) {
 
 <pre>${colored.join("\n")}</pre>`;
   });
+  const formatted = [];
+  let total = 0;
+  for (const f of formattedAll) {
+    if (formatted.length > 0 && total + f.length > MAX_DIFF_CHARS) break;
+    formatted.push(f);
+    total += f.length;
+  }
+  const omittedFiles = fileSections.length - formatted.length;
   if (omittedFiles > 0) formatted.push(`... (\uD30C\uC77C ${omittedFiles}\uAC1C \uC0DD\uB7B5)`);
-  const result = formatted.join("\n\n---\n\n");
-  return result.length > MAX_DIFF_CHARS ? result.slice(0, MAX_DIFF_CHARS) + "\n\n... (diff \uD06C\uAE30 \uC81C\uD55C\uC73C\uB85C \uC0DD\uB7B5)" : result;
+  return formatted.join("\n\n---\n\n");
 }
 function postProcessCommitDiffs(journalPath, historyDir) {
   let content;
@@ -546,6 +605,9 @@ function countHistoryEntries(historyDir) {
     return 0;
   }
 }
+function isValidDate(date) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN((/* @__PURE__ */ new Date(date + "T00:00:00Z")).getTime()) && (/* @__PURE__ */ new Date(date + "T00:00:00Z")).toISOString().slice(0, 10) === date;
+}
 function findMissedDates(config, today) {
   const root = config.journal.output_dir;
   let names = [];
@@ -554,8 +616,14 @@ function findMissedDates(config, today) {
   } catch {
     return [];
   }
+  const runHistory = loadAllRunHistory();
   const limit = (/* @__PURE__ */ new Date(today + "T00:00:00Z")).getTime() - 14 * 864e5;
-  return names.filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n) && n < today && (/* @__PURE__ */ new Date(n + "T00:00:00Z")).getTime() >= limit).filter((n) => fs3.existsSync(path3.join(root, n, "history")) && !fs3.existsSync(path3.join(root, n, "journal.md"))).filter((n) => (loadRunHistoryEntry(n)?.attempts ?? 0) < MAX_FAILED_ATTEMPTS).filter((n) => countHistoryEntries(path3.join(root, n, "history")) > 0).sort().reverse().slice(0, MAX_MISSED_PER_RUN).reverse();
+  return names.filter((n) => isValidDate(n) && n < today && (/* @__PURE__ */ new Date(n + "T00:00:00Z")).getTime() >= limit).filter((n) => fs3.existsSync(path3.join(root, n, "history"))).filter((n) => {
+    const status = runHistory[n]?.status;
+    const hasJournal = fs3.existsSync(path3.join(root, n, "journal.md"));
+    if (status === "no_data") return false;
+    return !hasJournal || status === "modified";
+  }).filter((n) => (runHistory[n]?.attempts ?? 0) < MAX_FAILED_ATTEMPTS).filter((n) => countHistoryEntries(path3.join(root, n, "history")) > 0).sort().reverse().slice(0, MAX_MISSED_PER_RUN).reverse();
 }
 function main() {
   const config = loadConfig();
@@ -570,8 +638,34 @@ function main() {
     console.log(`  \uB204\uB77D\uB41C \uC77C\uC9C0 \uBCF4\uCDA9 \uC0DD\uC131: ${missed}`);
     writeJournal(missed, config);
   }
+  if (config.cleanup) sweepCleanup(config, today);
+}
+function sweepCleanup(config, today) {
+  const root = config.journal.output_dir;
+  const runHistory = loadAllRunHistory();
+  let names = [];
+  try {
+    names = fs3.readdirSync(root);
+  } catch {
+    return;
+  }
+  for (const n of names) {
+    if (!isValidDate(n) || n >= today) continue;
+    if (runHistory[n]?.status !== "success") continue;
+    const historyDir = path3.join(root, n, "history");
+    if (!fs3.existsSync(historyDir) || !fs3.existsSync(path3.join(root, n, "journal.md"))) continue;
+    try {
+      fs3.rmSync(historyDir, { recursive: true, force: true });
+    } catch (e) {
+      logError(`history \uC815\uB9AC \uC2E4\uD328 (${n}): ${e}`);
+    }
+  }
 }
 function writeJournal(date, config) {
+  if (!isValidDate(date)) {
+    logError(`generate-journal: \uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uB0A0\uC9DC \uBB34\uC2DC: ${date}`);
+    return;
+  }
   try {
     generateJournalForDate(date, config);
   } catch (e) {
@@ -580,7 +674,7 @@ function writeJournal(date, config) {
   }
 }
 function generateJournalForDate(date, config) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (/* @__PURE__ */ new Date(date + "T00:00:00Z")).toISOString().slice(0, 10) !== date) {
+  if (!isValidDate(date)) {
     throw new Error(`\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uB0A0\uC9DC: ${date}`);
   }
   const dateDir = path3.join(config.journal.output_dir, date);
@@ -619,13 +713,23 @@ function generateJournalForDate(date, config) {
   }
 }
 function stripOuterCodeFence(content) {
-  const m = content.trim().match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
-  return m ? m[1] : content;
+  const m = content.trim().match(/^```[a-zA-Z]*\r?\n([\s\S]*?)\r?\n```$/);
+  return m && !m[1].includes("```") ? m[1] : content;
+}
+function isJsonLike(t) {
+  if (/^```json/i.test(t)) return true;
+  if (!t.startsWith("{") && !t.startsWith("[")) return false;
+  try {
+    JSON.parse(t);
+    return true;
+  } catch {
+    return false;
+  }
 }
 function isValidJournal(content) {
   const t = content.trim();
   if (t.length < 20) return false;
-  if (t.startsWith("{") || t.startsWith("[") || /^```json/i.test(t)) return false;
+  if (isJsonLike(t)) return false;
   if (/^#{1,6}\s/m.test(t)) return true;
   return t.length >= 300 && t.split("\n").filter((l) => l.trim()).length >= 5;
 }
@@ -633,7 +737,7 @@ function callWithRetry(input, model, validate, maxAttempts = 3) {
   let lastError = "";
   let timeouts = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const result = callClaude(input, model);
+    const result = callClaude(input, model, GENERATE_TIMEOUT_MS);
     if (result.error || result.status !== 0) {
       lastError = `\uC2DC\uB3C4 ${attempt}/${maxAttempts}: ${describeFailure(result)}`;
       if (isTimeout(result) && ++timeouts >= 2) break;
@@ -659,7 +763,7 @@ function finalizeJournal(date, input, config) {
     recordRunHistory({ date, status: "failed", timestamp: (/* @__PURE__ */ new Date()).toISOString(), error: r.error });
     return null;
   }
-  const journalStart = r.content.search(/^#/m);
+  const journalStart = r.content.search(/^#{1,6}\s/m);
   return journalStart > 0 ? r.content.slice(journalStart) : r.content;
 }
 function generateSingle(date, data, config) {
@@ -754,7 +858,7 @@ function readSettingsOrThrow() {
   }
 }
 function writeSettingsWithBackup(settings) {
-  if (fs4.existsSync(SETTINGS_PATH)) {
+  if (fs4.existsSync(SETTINGS_PATH) && !fs4.existsSync(`${SETTINGS_PATH}.bak`)) {
     fs4.copyFileSync(SETTINGS_PATH, `${SETTINGS_PATH}.bak`);
   }
   fs4.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
@@ -982,7 +1086,11 @@ function removeGitHooks() {
   console.log("\u2713 git hook \uB4F1\uB85D \uAE30\uB85D \uC0AD\uC81C \uC644\uB8CC");
 }
 function uninstall() {
-  removeClaudeSetting();
+  try {
+    removeClaudeSetting();
+  } catch (e) {
+    console.error(`! Claude \uC124\uC815 \uC815\uB9AC \uC2E4\uD328(\uB098\uBA38\uC9C0 \uC81C\uAC70\uB294 \uACC4\uC18D\uD569\uB2C8\uB2E4): ${e}`);
+  }
   console.log("\uC2A4\uCF00\uC904\uB7EC \uC81C\uAC70.");
   unregisterTaskScheduler();
   removeGitHooks();
@@ -2065,7 +2173,7 @@ var RUN_HISTORY_PATH = path6.join(DATA_DIR, "run-history.json");
 function loadRunHistory() {
   try {
     if (fs6.existsSync(RUN_HISTORY_PATH)) {
-      return JSON.parse(fs6.readFileSync(RUN_HISTORY_PATH, "utf-8"));
+      return JSON.parse(fs6.readFileSync(RUN_HISTORY_PATH, "utf-8").replace(/^﻿/, ""));
     }
   } catch {
   }

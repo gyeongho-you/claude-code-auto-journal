@@ -59,6 +59,10 @@ function resolveTimeZone(candidate, fallback) {
     return fallback;
   }
 }
+var INTERNAL_JUDGE_PROMPT_PREFIX = "\uB2F9\uC2E0\uC740 \uD300\uC7A5 \uC138\uC158\uC774 \uBC29\uCE58\uB418\uACE0 \uC788\uB294\uC9C0 \uD310\uB2E8\uD558\uB294 \uBCF4\uC870 \uB3C4\uAD6C\uC785\uB2C8\uB2E4";
+function isInternalJudgePrompt(prompt) {
+  return prompt.trimStart().startsWith(INTERNAL_JUDGE_PROMPT_PREFIX);
+}
 function stripBom(text) {
   return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
 }
@@ -98,8 +102,9 @@ function loadConfig() {
 }
 function extractProjectName(cwd) {
   if (!cwd) return "_unknown";
-  const parts = cwd.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || "_unknown";
+  const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+  const last = (parts[parts.length - 1] ?? "").replace(/[:*?"<>|]/g, "");
+  return last || "_unknown";
 }
 var SESSION_PROJECT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
 function getStableProjectName(sessionId, cwd) {
@@ -205,9 +210,50 @@ function readRunHistory(historyPath) {
   }
 }
 var isGenerateStatus = (s) => ["success", "failed", "no_data"].includes(s);
+function withFileLock(lockPath, fn) {
+  const STALE_MS = 1e4;
+  const MAX_WAIT_MS = 2e3;
+  const started = Date.now();
+  let locked = false;
+  while (!locked) {
+    try {
+      fs.mkdirSync(lockPath);
+      locked = true;
+    } catch (e) {
+      if (e.code !== "EEXIST") break;
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > STALE_MS) {
+          fs.rmdirSync(lockPath);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - started > MAX_WAIT_MS) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    if (locked) {
+      try {
+        fs.rmdirSync(lockPath);
+      } catch {
+      }
+    }
+  }
+}
 function recordRunHistory(entry) {
   try {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return;
     const historyPath = path.join(DATA_DIR, "run-history.json");
+    withFileLock(`${historyPath}.lock`, () => updateRunHistory(historyPath, entry));
+  } catch {
+  }
+}
+function updateRunHistory(historyPath, entry) {
+  {
     const history = readRunHistory(historyPath);
     const oldHistory = history[entry.date];
     if (!isGenerateStatus(entry.status)) {
@@ -217,14 +263,12 @@ function recordRunHistory(entry) {
         return;
       } else if (oldHistory.status === "failed") {
         entry.error = oldHistory.error;
-        entry.attempts = oldHistory.attempts;
       }
     } else if (entry.status === "failed") {
       entry.attempts = (oldHistory?.attempts ?? 0) + 1;
     }
     history[entry.date] = entry;
     writeJsonAtomic(historyPath, history);
-  } catch {
   }
 }
 function readAndClearSessionEdits(sessionId) {
@@ -326,16 +370,15 @@ function describeFailure(result) {
   return parts.length ? parts.join(" ") : "claude CLI \uC2E4\uD328(\uC6D0\uC778 \uC815\uBCF4 \uC5C6\uC74C)";
 }
 var q = (p) => `"${p}"`;
-function callClaude(input, model) {
+function callClaude(input, model, timeoutMs = 18e4) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   env.DAILY_JOURNAL_RUNNING = "1";
   env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = "1";
   const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
-  const claudeCmd = process.platform === "win32" ? "chcp 65001 >nul 2>&1 && claude" : "claude";
   const mcpPath = ensureTempFile("daily-journal-empty-mcp", "json", JSON.stringify({ mcpServers: {} }));
   const spPath = ensureTempFile("daily-journal-system-prompt", "txt", SYSTEM_PROMPT);
-  const result = (0, import_child_process.spawnSync)(claudeCmd, [
+  const baseArgs = (quote) => [
     "--print",
     "--model",
     claudeModel,
@@ -344,24 +387,33 @@ function callClaude(input, model) {
     "--output-format",
     "text",
     "--mcp-config",
-    q(mcpPath),
+    quote(mcpPath),
     "--strict-mcp-config",
     "--setting-sources",
     "local",
     "--disable-slash-commands",
+    "--no-session-persistence",
+    // 변환 호출마다 transcript가 쌓이지 않게 한다
     "--system-prompt-file",
-    q(spPath)
-  ], {
+    quote(spPath)
+  ];
+  const baseOptions = {
     input,
     encoding: "utf-8",
-    timeout: 18e4,
-    shell: true,
+    timeout: timeoutMs,
     env,
     cwd: getRunnerDir(),
     maxBuffer: 64 * 1024 * 1024
-  });
-  const stdout = (result.stdout || "").trim() ? result.stdout : result.stderr;
+  };
+  let result = (0, import_child_process.spawnSync)("claude", baseArgs((p) => p), { ...baseOptions, shell: false });
+  if (result.error?.code === "ENOENT" && process.platform === "win32") {
+    result = (0, import_child_process.spawnSync)("chcp 65001 >nul 2>&1 && claude", baseArgs(q), { ...baseOptions, shell: true });
+  }
+  const stdout = (result.stdout || "").trim() ? result.stdout : stripCliNoise(result.stderr || "");
   return { ...result, stdout };
+}
+function stripCliNoise(text) {
+  return text.split("\n").filter((l) => !/^\s*(Permission allow rule|Warning:|\(node:\d+\) )/.test(l)).join("\n");
 }
 
 // src/stop-hook.ts
@@ -400,6 +452,7 @@ function extractCurrentTurn(transcriptPath) {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     if (!entry || entry.type !== "user" || !entry.message?.content) continue;
+    if (entry.isSidechain || entry.isMeta) continue;
     const messageContent = entry.message.content;
     if (typeof messageContent === "string") {
       prompt = messageContent;
@@ -415,7 +468,7 @@ function extractCurrentTurn(transcriptPath) {
   const assistantTexts = [];
   for (let i = lastUserIndex + 1; i < entries.length; i++) {
     const entry = entries[i];
-    if (entry?.type !== "assistant" || !Array.isArray(entry.message?.content)) continue;
+    if (entry?.type !== "assistant" || entry.isSidechain || !Array.isArray(entry.message?.content)) continue;
     for (const part of entry.message.content) {
       if (part.type === "text" && part.text) assistantTexts.push(part.text);
     }
@@ -456,11 +509,22 @@ function tryRegisterGitHook(cwd, projectName, config) {
   const gitCommitHookJsPath = path3.join(PLUGIN_DIR, "dist", "git-commit-hook.js");
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
   try {
+    let gitCommonDir = path3.join(repoRoot, ".git");
+    try {
+      gitCommonDir = path3.resolve(repoRoot, (0, import_child_process2.execSync)(`git -C "${repoRoot}" rev-parse --git-common-dir`, { encoding: "utf-8" }).trim());
+    } catch {
+    }
+    const rel = (from, to) => path3.relative(from, to);
+    const insideRepo = !rel(repoRoot, hookPath).startsWith("..") && !path3.isAbsolute(rel(repoRoot, hookPath));
+    const insideGitDir = !rel(gitCommonDir, hookPath).startsWith("..") && !path3.isAbsolute(rel(gitCommonDir, hookPath));
+    if (insideRepo && !insideGitDir) {
+      throw new Error(`hooks \uACBD\uB85C(${hookPath})\uAC00 \uC800\uC7A5\uC18C \uCD94\uC801 \uD3F4\uB354 \uC548\uC774\uB77C \uC790\uB3D9 \uB4F1\uB85D\uD558\uC9C0 \uC54A\uC74C(core.hooksPath)`);
+    }
     const block = buildDailyJournalBlock(gitCommitHookJsPath);
     let content = "";
     if (fs3.existsSync(hookPath)) {
       content = fs3.readFileSync(hookPath, "utf-8");
-      if (content.includes(GIT_HOOK_MARKER_BEGIN)) {
+      if (content.includes(GIT_HOOK_MARKER_BEGIN) || content.includes("git-commit-hook.js")) {
         hooks[projectName] = { status: "registered", timestamp, hookPath };
         saveGitHooks(hooks);
         return;
@@ -490,38 +554,31 @@ ${stylePrompt}
 <content>
 ${neutralizeFence(response)}
 </content>`;
-  const result = callClaude(input, model);
+  const result = callClaude(input, model, SUMMARY_TIMEOUT_MS);
   if (result.error || result.status !== 0) {
     throw new Error(describeFailure(result));
   }
-  return result.stdout.trim();
+  return sanitizeSummary(result.stdout);
 }
-function isInternalJudgePrompt(prompt) {
-  return prompt.includes("shouldNudge") && prompt.includes("JSON");
-}
-function isDuplicateOfLast(filePath, entry) {
-  try {
-    if (!fs3.existsSync(filePath)) return false;
-    const size = fs3.statSync(filePath).size;
-    const readLen = Math.min(size, 256 * 1024);
-    const fd = fs3.openSync(filePath, "r");
+var SUMMARY_TIMEOUT_MS = 45e3;
+var MAX_SUMMARY_CHARS = 3e3;
+function sanitizeSummary(raw) {
+  const t = (raw || "").trim();
+  if (!t) return "";
+  if (t.toUpperCase() === "SKIP") return "SKIP";
+  if (/^(no content|no text|i (can'?t|cannot|don'?t)|sorry|죄송|내용이 (없|제공))/i.test(t)) return "";
+  if ((t.startsWith("{") || t.startsWith("[")) && (() => {
     try {
-      const buf = Buffer.alloc(readLen);
-      fs3.readSync(fd, buf, 0, readLen, size - readLen);
-      const lines = buf.toString("utf-8").split("\n").filter(Boolean);
-      const last = lines[lines.length - 1];
-      if (!last) return false;
-      const prev = JSON.parse(last);
-      return prev.sessionId === entry.sessionId && prev.time === entry.time && prev.prompt === entry.prompt;
-    } finally {
-      fs3.closeSync(fd);
+      JSON.parse(t);
+      return true;
+    } catch {
+      return false;
     }
-  } catch {
-    return false;
-  }
+  })()) return "";
+  return t.length > MAX_SUMMARY_CHARS ? t.slice(0, MAX_SUMMARY_CHARS) + "\u2026" : t;
 }
 function main() {
-  if (process.env.DAILY_JOURNAL_RUNNING) {
+  if (process.env.DAILY_JOURNAL_RUNNING === "1") {
     return;
   }
   const stdinData = fs3.readFileSync(0, "utf-8");
@@ -533,6 +590,9 @@ function main() {
     return;
   }
   const { session_id, cwd, last_assistant_message, transcript_path } = payload;
+  if ((cwd || "").replace(/\\/g, "/").includes("/.claude/daily-journal/_runner")) {
+    return;
+  }
   const config = loadConfig();
   cleanupStaleSessionProjectCache();
   const projectName = getStableProjectName(session_id, cwd);
@@ -565,7 +625,13 @@ function main() {
   if (prompt.startsWith("Base directory for this skill:")) {
     prompt = "skill \uC0AC\uC6A9 \n" + prompt.split("\n")[0];
   }
-  const answer = buildAnswer(assistantTexts.length > 0 ? assistantTexts : last_assistant_message ? [last_assistant_message] : []);
+  const texts = [...assistantTexts];
+  if (last_assistant_message) {
+    const tail = texts[texts.length - 1] ?? "";
+    const probe = last_assistant_message.trim().slice(0, 200);
+    if (texts.length === 0 || probe && !tail.includes(probe)) texts.push(last_assistant_message);
+  }
+  const answer = buildAnswer(texts);
   let summary = "";
   if (config.summary.use && answer) {
     try {
@@ -592,11 +658,7 @@ function main() {
     sessionId: session_id,
     ...fileEdits.length > 0 ? { fileEdits } : {}
   };
-  const historyFile = path3.join(historyDir, `${projectName}.jsonl`);
-  if (isDuplicateOfLast(historyFile, entry)) {
-    return;
-  }
-  fs3.appendFileSync(historyFile, JSON.stringify(entry) + "\n");
+  fs3.appendFileSync(path3.join(historyDir, `${projectName}.jsonl`), JSON.stringify(entry) + "\n");
   recordRunHistory({ date: getDateString(config.timeZone), status: "modified", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
 }
 try {

@@ -56,7 +56,7 @@ export function isTimeout(result: SpawnSyncReturns<string>): boolean {
 const q = (p: string) => `"${p}"`;
 
 // claude 서브 세션 호출 메서드
-export function callClaude(input: string, model: ClaudeModel) : SpawnSyncReturns<string> {
+export function callClaude(input: string, model: ClaudeModel, timeoutMs = 180000) : SpawnSyncReturns<string> {
     const env = { ...process.env };
     delete env.CLAUDECODE;
     env.DAILY_JOURNAL_RUNNING = '1'; // stop-hook 재진입 방지
@@ -64,33 +64,49 @@ export function callClaude(input: string, model: ClaudeModel) : SpawnSyncReturns
 
     const claudeModel = ClaudeModel[model] ?? ClaudeModel.default;
 
-    const claudeCmd = process.platform === 'win32' ? 'chcp 65001 >nul 2>&1 && claude' : 'claude';
-
     const mcpPath = ensureTempFile('daily-journal-empty-mcp', 'json', JSON.stringify({ mcpServers: {} }));
     const spPath = ensureTempFile('daily-journal-system-prompt', 'txt', SYSTEM_PROMPT);
 
-    const result = spawnSync(claudeCmd, [
+    const baseArgs = (quote: (p: string) => string) => [
         '--print', '--model', claudeModel,
         '--allowedTools', 'none',
         '--output-format', 'text',
-        '--mcp-config', q(mcpPath), '--strict-mcp-config',
+        '--mcp-config', quote(mcpPath), '--strict-mcp-config',
         '--setting-sources', 'local',
         '--disable-slash-commands',
-        '--system-prompt-file', q(spPath),
-    ], {
+        '--no-session-persistence', // 변환 호출마다 transcript가 쌓이지 않게 한다
+        '--system-prompt-file', quote(spPath),
+    ];
+
+    const baseOptions = {
         input,
-        encoding: 'utf-8',
-        timeout: 180000,
-        shell: true,
+        encoding: 'utf-8' as const,
+        timeout: timeoutMs,
         env,
         cwd: getRunnerDir(),
         maxBuffer: 64 * 1024 * 1024,
-    });
+    };
 
-    // Claude Code 2.x: --output-format text 응답이 stderr로 출력됨
+    // 셸을 거치지 않고 직접 실행한다(타임아웃 시 셸만 죽고 claude 자식이 남는 문제, 인자 인용 문제를 피함).
+    let result = spawnSync('claude', baseArgs(p => p), { ...baseOptions, shell: false });
+
+    // claude.cmd 설치(npm 전역 설치 등)라서 직접 실행이 안 되면 기존 방식(cmd 경유)으로 폴백
+    if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' && process.platform === 'win32') {
+        result = spawnSync('chcp 65001 >nul 2>&1 && claude', baseArgs(q), { ...baseOptions, shell: true });
+    }
+
+    // Claude Code 2.x: --output-format text 응답이 stderr로 출력됨. 이때 CLI 경고 줄은 응답에서 제외한다.
     const stdout = (result.stdout || '').trim()
         ? result.stdout
-        : result.stderr;
+        : stripCliNoise(result.stderr || '');
 
     return { ...result, stdout };
+}
+
+// stderr로 새어 나오는 CLI 경고(권한 규칙 경고 등)가 응답 본문에 섞이지 않게 거른다
+export function stripCliNoise(text: string): string {
+    return text
+        .split('\n')
+        .filter(l => !/^\s*(Permission allow rule|Warning:|\(node:\d+\) )/.test(l))
+        .join('\n');
 }

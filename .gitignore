@@ -2,3 +2,4 @@ node_modules/
 .credentials
 .idea/
 .claude/
+.test-dist/

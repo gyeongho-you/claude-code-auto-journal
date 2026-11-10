@@ -14,7 +14,7 @@ export const RUN_HISTORY_PATH = path.join(DATA_DIR, 'run-history.json');
 function loadRunHistory(): Record<string, RunHistoryEntry> {
   try {
     if (fs.existsSync(RUN_HISTORY_PATH)) {
-      return JSON.parse(fs.readFileSync(RUN_HISTORY_PATH, 'utf-8'));
+      return JSON.parse(fs.readFileSync(RUN_HISTORY_PATH, 'utf-8').replace(/^﻿/, ''));
     }
   } catch { /* ignore */ }
   return {};

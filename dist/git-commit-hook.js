@@ -156,9 +156,50 @@ function readRunHistory(historyPath) {
   }
 }
 var isGenerateStatus = (s) => ["success", "failed", "no_data"].includes(s);
+function withFileLock(lockPath, fn) {
+  const STALE_MS = 1e4;
+  const MAX_WAIT_MS = 2e3;
+  const started = Date.now();
+  let locked = false;
+  while (!locked) {
+    try {
+      fs.mkdirSync(lockPath);
+      locked = true;
+    } catch (e) {
+      if (e.code !== "EEXIST") break;
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > STALE_MS) {
+          fs.rmdirSync(lockPath);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - started > MAX_WAIT_MS) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    if (locked) {
+      try {
+        fs.rmdirSync(lockPath);
+      } catch {
+      }
+    }
+  }
+}
 function recordRunHistory(entry) {
   try {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return;
     const historyPath = path.join(DATA_DIR, "run-history.json");
+    withFileLock(`${historyPath}.lock`, () => updateRunHistory(historyPath, entry));
+  } catch {
+  }
+}
+function updateRunHistory(historyPath, entry) {
+  {
     const history = readRunHistory(historyPath);
     const oldHistory = history[entry.date];
     if (!isGenerateStatus(entry.status)) {
@@ -168,14 +209,12 @@ function recordRunHistory(entry) {
         return;
       } else if (oldHistory.status === "failed") {
         entry.error = oldHistory.error;
-        entry.attempts = oldHistory.attempts;
       }
     } else if (entry.status === "failed") {
       entry.attempts = (oldHistory?.attempts ?? 0) + 1;
     }
     history[entry.date] = entry;
     writeJsonAtomic(historyPath, history);
-  } catch {
   }
 }
 var LOG_TIME_ZONE = "Asia/Seoul";
