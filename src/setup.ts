@@ -13,14 +13,7 @@ function initClaudeSetting(): void {
   const stopHookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'stop-hook.js')}"`;
   const fileEditHookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'file-edit-hook.js')}"`;
 
-  let settings: Record<string, unknown> = {};
-  if (fs.existsSync(SETTINGS_PATH)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
-    } catch {
-      settings = {};
-    }
-  }
+  const settings = readSettingsOrThrow();
 
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
 
@@ -51,16 +44,37 @@ function initClaudeSetting(): void {
   // 기록파일 쓰기권한 추가
   const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
   const allowList = (permissions.allow ?? []) as string[];
-  const dailyJournalPermission = `Write(${path.join(DATA_DIR, '**')})`;
+  // Claude Code는 파일 권한 규칙으로 Edit(path)만 인식한다(Write(path)는 경고/오류를 일으킴)
+  const dailyJournalPermission = `Edit(${path.join(DATA_DIR, '**')})`;
+  const legacyPermission = `Write(${path.join(DATA_DIR, '**')})`;
+  const cleaned = allowList.filter(p => p !== legacyPermission);
 
-  if (!allowList.includes(dailyJournalPermission)) {
-    allowList.push(dailyJournalPermission);
+  if (!cleaned.includes(dailyJournalPermission)) {
+    cleaned.push(dailyJournalPermission);
   }
 
-  settings.permissions = { ...permissions, allow: allowList };
+  settings.permissions = { ...permissions, allow: cleaned };
 
+  writeSettingsWithBackup(settings);
+  console.log('✓ Stop 훅, PostToolUse 훅, 기록 파일 편집 권한 등록 완료');
+}
+
+// settings.json 파싱에 실패하면 빈 객체로 덮어쓰지 않고 중단한다(다른 훅/권한/env 유실 방지)
+function readSettingsOrThrow(): Record<string, unknown> {
+  if (!fs.existsSync(SETTINGS_PATH)) return {};
+  const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8').replace(/^﻿/, '');
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`${SETTINGS_PATH} 파싱 실패 - 수정하지 않고 중단합니다. 파일을 직접 고친 뒤 다시 실행하세요: ${e}`);
+  }
+}
+
+function writeSettingsWithBackup(settings: Record<string, unknown>): void {
+  if (fs.existsSync(SETTINGS_PATH)) {
+    fs.copyFileSync(SETTINGS_PATH, `${SETTINGS_PATH}.bak`);
+  }
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
-  console.log('✓ Stop 훅, PostToolUse 훅, write 권한 등록 완료');
 }
 
 function registerTaskScheduler(generateTime: string): void {
@@ -193,9 +207,11 @@ function createUserConfigIfAbsent(): void {
 
   let existing: Record<string, unknown>
   try {
-    existing = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
-  } catch {
-    existing = {};
+    existing = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8').replace(/^﻿/, ''));
+  } catch (e) {
+    // 파싱 실패 시 템플릿으로 덮어쓰면 사용자 설정이 사라지므로 건드리지 않는다
+    console.error(`! 사용자 설정 파일 파싱 실패, 수정하지 않습니다: ${userConfigPath} (${e})`);
+    return;
   }
 
   const updated = deepMergeDefaults(userConfigTemplate, existing);
@@ -255,14 +271,7 @@ export function setup(): void {
 }
 
 function removeClaudeSetting(): void {
-  let settings: Record<string, unknown> = {};
-  if (fs.existsSync(SETTINGS_PATH)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
-    } catch {
-      settings = {};
-    }
-  }
+  const settings = readSettingsOrThrow();
 
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
   const stopHooks = (hooks.Stop ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
@@ -275,11 +284,11 @@ function removeClaudeSetting(): void {
 
   const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
   const allowList = (permissions.allow ?? []) as string[];
-  const dailyJournalPermission = `Write(${path.join(DATA_DIR, '**')})`;
-  settings.permissions = { ...permissions, allow: allowList.filter(p => p !== dailyJournalPermission) };
+  const ownPermissions = [`Edit(${path.join(DATA_DIR, '**')})`, `Write(${path.join(DATA_DIR, '**')})`];
+  settings.permissions = { ...permissions, allow: allowList.filter(p => !ownPermissions.includes(p)) };
 
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
-  console.log('✓ Stop 훅, PostToolUse 훅, write 권한 제거 완료');
+  writeSettingsWithBackup(settings);
+  console.log('✓ Stop 훅, PostToolUse 훅, 기록 파일 편집 권한 제거 완료');
 }
 
 function removeGitHooks(): void {

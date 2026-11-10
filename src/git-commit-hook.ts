@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { loadConfig, getDateStringWithHourMinutes, getTodayDir, logError, shouldTrackProject } from './config';
+import { loadConfig, getDateString, getDateStringWithHourMinutes, getTodayDir, logError, recordRunHistory, shouldTrackProject } from './config';
 import { HistoryEntry } from './types';
 
 function main(): void {
@@ -53,6 +53,9 @@ function main(): void {
     path.join(historyDir, `${projectName}.jsonl`),
     JSON.stringify(entry) + '\n',
   );
+
+  // 이미 일지가 생성된 날의 늦은 커밋도 재생성 대상(modified)이 되도록 표시
+  recordRunHistory({ date: getDateString(config.timeZone), status: 'modified', timestamp: new Date().toISOString() });
 }
 
 try {

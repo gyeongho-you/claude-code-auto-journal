@@ -57,6 +57,9 @@ function resolveTimeZone(candidate, fallback) {
     return fallback;
   }
 }
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
 function loadConfig() {
   const defaultConfig = loadDefaultConfig();
   const userConfigPath = path.join(DATA_DIR, "user-config.json");
@@ -64,7 +67,7 @@ function loadConfig() {
     return defaultConfig;
   }
   try {
-    const userConfig = JSON.parse(fs.readFileSync(userConfigPath, "utf-8"));
+    const userConfig = JSON.parse(stripBom(fs.readFileSync(userConfigPath, "utf-8")));
     return {
       ...defaultConfig,
       schedule: { ...defaultConfig.schedule, ...userConfig.schedule },
@@ -134,10 +137,52 @@ function getDateStringWithHourMinutesSeconds(timeZone) {
 function getTodayDir(config) {
   return path.join(config.journal.output_dir, getDateString(config.timeZone));
 }
+function writeJsonAtomic(filePath, data) {
+  const tmp = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
+  fs.renameSync(tmp, filePath);
+}
+function readRunHistory(historyPath) {
+  if (!fs.existsSync(historyPath)) return {};
+  try {
+    return JSON.parse(stripBom(fs.readFileSync(historyPath, "utf-8")));
+  } catch (e) {
+    try {
+      fs.copyFileSync(historyPath, `${historyPath}.corrupt-${Date.now()}`);
+    } catch {
+    }
+    logError(`run-history.json \uD30C\uC2F1 \uC2E4\uD328, \uBC31\uC5C5 \uD6C4 \uC0C8\uB85C \uC2DC\uC791: ${e}`);
+    return {};
+  }
+}
+var isGenerateStatus = (s) => ["success", "failed", "no_data"].includes(s);
+function recordRunHistory(entry) {
+  try {
+    const historyPath = path.join(DATA_DIR, "run-history.json");
+    const history = readRunHistory(historyPath);
+    const oldHistory = history[entry.date];
+    if (!isGenerateStatus(entry.status)) {
+      if (!oldHistory) {
+        entry.status = "create";
+      } else if (!isGenerateStatus(oldHistory.status)) {
+        return;
+      } else if (oldHistory.status === "failed") {
+        entry.error = oldHistory.error;
+        entry.attempts = oldHistory.attempts;
+      }
+    } else if (entry.status === "failed") {
+      entry.attempts = (oldHistory?.attempts ?? 0) + 1;
+    }
+    history[entry.date] = entry;
+    writeJsonAtomic(historyPath, history);
+  } catch {
+  }
+}
+var LOG_TIME_ZONE = "Asia/Seoul";
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
-    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(loadConfig().timeZone)}] ${message}
+    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(LOG_TIME_ZONE)}] ${message}
 `);
     console.error(`[Error] ${message}`);
   } catch {
@@ -186,6 +231,7 @@ function main() {
     path2.join(historyDir, `${projectName}.jsonl`),
     JSON.stringify(entry) + "\n"
   );
+  recordRunHistory({ date: getDateString(config.timeZone), status: "modified", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
 }
 try {
   main();

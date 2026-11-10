@@ -73,6 +73,7 @@ export type RunHistoryEntry = {
   status: 'create' | 'success' | 'failed' | 'no_data' | 'modified';
   timestamp: string;
   error?: string;
+  attempts?: number; // 연속 일지 생성 실패 횟수
 };
 
 export type TranscriptLine = {

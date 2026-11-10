@@ -34,6 +34,10 @@ function resolveTimeZone(candidate: unknown, fallback: string): string {
   }
 }
 
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+}
+
 export function loadConfig(): Config {
   const defaultConfig = loadDefaultConfig();
   const userConfigPath = path.join(DATA_DIR, 'user-config.json');
@@ -43,7 +47,7 @@ export function loadConfig(): Config {
   }
 
   try {
-    const userConfig = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
+    const userConfig = JSON.parse(stripBom(fs.readFileSync(userConfigPath, 'utf-8')));
     return {
       ...defaultConfig,
       schedule: { ...defaultConfig.schedule, ...userConfig.schedule },
@@ -182,33 +186,61 @@ export function getTodayDir(config: Config): string {
   return path.join(config.journal.output_dir, getDateString(config.timeZone));
 }
 
+function writeJsonAtomic(filePath: string, data: unknown): void {
+  const tmp = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+  fs.renameSync(tmp, filePath);
+}
+
+function readRunHistory(historyPath: string): Record<string, RunHistoryEntry> {
+  if (!fs.existsSync(historyPath)) return {};
+  try {
+    return JSON.parse(stripBom(fs.readFileSync(historyPath, 'utf-8')));
+  } catch (e) {
+    // 손상된 파일은 백업해 두고 새로 시작한다(이후 모든 기록이 조용히 실패하는 것을 방지)
+    try { fs.copyFileSync(historyPath, `${historyPath}.corrupt-${Date.now()}`); } catch { /* ignore */ }
+    logError(`run-history.json 파싱 실패, 백업 후 새로 시작: ${e}`);
+    return {};
+  }
+}
+
+// 일지작성에 대한 상태값인지 확인
+const isGenerateStatus = (s: string) => ['success', 'failed', 'no_data'].includes(s);
+
 export function recordRunHistory(entry: RunHistoryEntry): void {
   try {
     const historyPath = path.join(DATA_DIR, 'run-history.json');
-    let history: Record<string, RunHistoryEntry> = {};
-    if (fs.existsSync(historyPath)) {
-      history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
-    }
+    const history = readRunHistory(historyPath);
     const oldHistory = history[entry.date];
 
-    // 일지작성에 대한 상태값인지 확인
-    const isGenerateJournal = (s: string) => ['success', 'failed', 'no_data'].includes(s);
-
-    if(!isGenerateJournal(entry.status)) {
-      // 첫 생성시 create로 상태 생성
-      if(!oldHistory) {
-        entry.status = 'create';
-      } else if(!isGenerateJournal(oldHistory?.status)) {
-        return;
+    if (!isGenerateStatus(entry.status)) {
+      // 새 대화/커밋이 추가됨 (create | modified)
+      if (!oldHistory) {
+        entry.status = 'create'; // 첫 기록
+      } else if (!isGenerateStatus(oldHistory.status)) {
+        return; // 이미 create/modified 상태
+      } else if (oldHistory.status === 'failed') {
+        // 실패 사유와 누적 실패 횟수는 보존(진단 정보 유실 방지)
+        entry.error = oldHistory.error;
+        entry.attempts = oldHistory.attempts;
       }
-    } else {
-      if(!oldHistory) return;
+    } else if (entry.status === 'failed') {
+      entry.attempts = (oldHistory?.attempts ?? 0) + 1;
     }
+    // success/no_data 는 이전 기록이 없어도 항상 기록한다(attempts 초기화)
 
     history[entry.date] = entry;
-    fs.writeFileSync(historyPath, JSON.stringify(history, null, 2), 'utf-8');
+    writeJsonAtomic(historyPath, history);
   } catch {
     // run-history 기록 실패는 무시
+  }
+}
+
+export function loadRunHistoryEntry(date: string): RunHistoryEntry | undefined {
+  try {
+    return readRunHistory(path.join(DATA_DIR, 'run-history.json'))[date];
+  } catch {
+    return undefined;
   }
 }
 
@@ -227,20 +259,24 @@ export function readAndClearSessionEdits(sessionId: string): FileEditEntry[] {
 export function loadGitHooks(): Record<string, GitHookEntry> {
   if (!fs.existsSync(GIT_HOOKS_PATH)) return {};
   try {
-    return JSON.parse(fs.readFileSync(GIT_HOOKS_PATH, 'utf-8'));
+    return JSON.parse(stripBom(fs.readFileSync(GIT_HOOKS_PATH, 'utf-8')));
   } catch {
+    try { fs.copyFileSync(GIT_HOOKS_PATH, `${GIT_HOOKS_PATH}.corrupt-${Date.now()}`); } catch { /* ignore */ }
     return {};
   }
 }
 
 export function saveGitHooks(hooks: Record<string, GitHookEntry>): void {
-  fs.writeFileSync(GIT_HOOKS_PATH, JSON.stringify(hooks, null, 2), 'utf-8');
+  writeJsonAtomic(GIT_HOOKS_PATH, hooks);
 }
+
+// logError는 loadConfig를 부르지 않는다(loadConfig↔logError 무한 재귀 방지).
+const LOG_TIME_ZONE = 'Asia/Seoul';
 
 export function logError(message: string): void {
   try {
     const logPath = path.join(DATA_DIR, 'error.log');
-    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(loadConfig().timeZone)}] ${message}\n`);
+    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(LOG_TIME_ZONE)}] ${message}\n`);
     console.error(`[Error] ${message}`);
   } catch {
     // 에러 로그 실패는 무시

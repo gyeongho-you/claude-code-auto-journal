@@ -70,6 +70,9 @@ function resolveTimeZone(candidate, fallback) {
     return fallback;
   }
 }
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
 function loadConfig() {
   const defaultConfig = loadDefaultConfig();
   const userConfigPath = path.join(DATA_DIR, "user-config.json");
@@ -77,7 +80,7 @@ function loadConfig() {
     return defaultConfig;
   }
   try {
-    const userConfig = JSON.parse(fs.readFileSync(userConfigPath, "utf-8"));
+    const userConfig = JSON.parse(stripBom(fs.readFileSync(userConfigPath, "utf-8")));
     return {
       ...defaultConfig,
       schedule: { ...defaultConfig.schedule, ...userConfig.schedule },
@@ -122,15 +125,20 @@ function getDateStringWithHourMinutesSeconds(timeZone) {
 function loadGitHooks() {
   if (!fs.existsSync(GIT_HOOKS_PATH)) return {};
   try {
-    return JSON.parse(fs.readFileSync(GIT_HOOKS_PATH, "utf-8"));
+    return JSON.parse(stripBom(fs.readFileSync(GIT_HOOKS_PATH, "utf-8")));
   } catch {
+    try {
+      fs.copyFileSync(GIT_HOOKS_PATH, `${GIT_HOOKS_PATH}.corrupt-${Date.now()}`);
+    } catch {
+    }
     return {};
   }
 }
+var LOG_TIME_ZONE = "Asia/Seoul";
 function logError(message) {
   try {
     const logPath = path.join(DATA_DIR, "error.log");
-    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(loadConfig().timeZone)}] ${message}
+    fs.appendFileSync(logPath, `[${getDateStringWithHourMinutesSeconds(LOG_TIME_ZONE)}] ${message}
 `);
     console.error(`[Error] ${message}`);
   } catch {
@@ -145,14 +153,7 @@ var SETTINGS_PATH = path2.join(CLAUDE_DIR, "settings.json");
 function initClaudeSetting() {
   const stopHookCommand = `node "${path2.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
   const fileEditHookCommand = `node "${path2.join(PLUGIN_DIR, "dist", "file-edit-hook.js")}"`;
-  let settings = {};
-  if (fs2.existsSync(SETTINGS_PATH)) {
-    try {
-      settings = JSON.parse(fs2.readFileSync(SETTINGS_PATH, "utf-8"));
-    } catch {
-      settings = {};
-    }
-  }
+  const settings = readSettingsOrThrow();
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
   const stopAlreadyRegistered = stopHooks.some(
@@ -174,13 +175,30 @@ function initClaudeSetting() {
   settings.hooks = { ...hooks, Stop: stopHooks, PostToolUse: postToolUseHooks };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
-  const dailyJournalPermission = `Write(${path2.join(DATA_DIR, "**")})`;
-  if (!allowList.includes(dailyJournalPermission)) {
-    allowList.push(dailyJournalPermission);
+  const dailyJournalPermission = `Edit(${path2.join(DATA_DIR, "**")})`;
+  const legacyPermission = `Write(${path2.join(DATA_DIR, "**")})`;
+  const cleaned = allowList.filter((p) => p !== legacyPermission);
+  if (!cleaned.includes(dailyJournalPermission)) {
+    cleaned.push(dailyJournalPermission);
   }
-  settings.permissions = { ...permissions, allow: allowList };
+  settings.permissions = { ...permissions, allow: cleaned };
+  writeSettingsWithBackup(settings);
+  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, \uAE30\uB85D \uD30C\uC77C \uD3B8\uC9D1 \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
+}
+function readSettingsOrThrow() {
+  if (!fs2.existsSync(SETTINGS_PATH)) return {};
+  const raw = fs2.readFileSync(SETTINGS_PATH, "utf-8").replace(/^﻿/, "");
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`${SETTINGS_PATH} \uD30C\uC2F1 \uC2E4\uD328 - \uC218\uC815\uD558\uC9C0 \uC54A\uACE0 \uC911\uB2E8\uD569\uB2C8\uB2E4. \uD30C\uC77C\uC744 \uC9C1\uC811 \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2E4\uD589\uD558\uC138\uC694: ${e}`);
+  }
+}
+function writeSettingsWithBackup(settings) {
+  if (fs2.existsSync(SETTINGS_PATH)) {
+    fs2.copyFileSync(SETTINGS_PATH, `${SETTINGS_PATH}.bak`);
+  }
   fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uB4F1\uB85D \uC644\uB8CC");
 }
 function registerTaskScheduler(generateTime) {
   if (process.platform === "win32") {
@@ -293,9 +311,10 @@ function createUserConfigIfAbsent() {
   }
   let existing;
   try {
-    existing = JSON.parse(fs2.readFileSync(userConfigPath, "utf-8"));
-  } catch {
-    existing = {};
+    existing = JSON.parse(fs2.readFileSync(userConfigPath, "utf-8").replace(/^﻿/, ""));
+  } catch (e) {
+    console.error(`! \uC0AC\uC6A9\uC790 \uC124\uC815 \uD30C\uC77C \uD30C\uC2F1 \uC2E4\uD328, \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: ${userConfigPath} (${e})`);
+    return;
   }
   const updated = deepMergeDefaults(userConfigTemplate, existing);
   if (JSON.stringify(updated) !== JSON.stringify(existing)) {
@@ -339,14 +358,7 @@ function setup() {
   console.log("   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
 }
 function removeClaudeSetting() {
-  let settings = {};
-  if (fs2.existsSync(SETTINGS_PATH)) {
-    try {
-      settings = JSON.parse(fs2.readFileSync(SETTINGS_PATH, "utf-8"));
-    } catch {
-      settings = {};
-    }
-  }
+  const settings = readSettingsOrThrow();
   const hooks = settings.hooks ?? {};
   const stopHooks = hooks.Stop ?? [];
   const postToolUseHooks = hooks.PostToolUse ?? [];
@@ -357,10 +369,10 @@ function removeClaudeSetting() {
   };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
-  const dailyJournalPermission = `Write(${path2.join(DATA_DIR, "**")})`;
-  settings.permissions = { ...permissions, allow: allowList.filter((p) => p !== dailyJournalPermission) };
-  fs2.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
-  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, write \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
+  const ownPermissions = [`Edit(${path2.join(DATA_DIR, "**")})`, `Write(${path2.join(DATA_DIR, "**")})`];
+  settings.permissions = { ...permissions, allow: allowList.filter((p) => !ownPermissions.includes(p)) };
+  writeSettingsWithBackup(settings);
+  console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, \uAE30\uB85D \uD30C\uC77C \uD3B8\uC9D1 \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
 }
 function removeGitHooks() {
   const hooks = loadGitHooks();

@@ -20,7 +20,7 @@ import {
   GIT_HOOK_MARKER_END,
 } from './config';
 import {ClaudeModel, Config, HistoryEntry, StdinPayload, TranscriptLine} from './types';
-import {callClaude} from "./claude";
+import {callClaude, describeFailure, neutralizeFence} from "./claude";
 
 function isInTimeRange(start: string, end: string, timeZone: string): boolean {
   const [sh, sm] = start.split(':').map(Number);
@@ -137,7 +137,12 @@ function tryRegisterGitHook(cwd: string, projectName: string, config: Config): v
     return;
   }
 
-  const hookPath = path.join(repoRoot, '.git', 'hooks', 'post-commit');
+  // worktree(.git이 파일)·core.hooksPath 저장소도 git이 알려주는 실제 hooks 경로를 쓴다
+  let hookPath = path.join(repoRoot, '.git', 'hooks', 'post-commit');
+  try {
+    const gitPath = execSync(`git -C "${repoRoot}" rev-parse --git-path hooks/post-commit`, { encoding: 'utf-8' }).trim();
+    if (gitPath) hookPath = path.resolve(repoRoot, gitPath);
+  } catch { /* 기본 경로 사용 */ }
   const gitCommitHookJsPath = path.join(PLUGIN_DIR, 'dist', 'git-commit-hook.js');
   const timestamp = new Date().toISOString();
 
@@ -147,7 +152,7 @@ function tryRegisterGitHook(cwd: string, projectName: string, config: Config): v
 
     if (fs.existsSync(hookPath)) {
       content = fs.readFileSync(hookPath, 'utf-8');
-      if (content.includes('daily-journal')) {
+      if (content.includes(GIT_HOOK_MARKER_BEGIN)) {
         hooks[projectName] = { status: 'registered', timestamp, hookPath };
         saveGitHooks(hooks);
         return;
@@ -158,6 +163,7 @@ function tryRegisterGitHook(cwd: string, projectName: string, config: Config): v
       content = `#!/bin/sh\n${block}\n`;
     }
 
+    fs.mkdirSync(path.dirname(hookPath), { recursive: true });
     fs.writeFileSync(hookPath, content, 'utf-8');
     if (process.platform !== 'win32') fs.chmodSync(hookPath, 0o755);
 
@@ -171,13 +177,41 @@ function tryRegisterGitHook(cwd: string, projectName: string, config: Config): v
 }
 
 function summarize(defaultPrompt: string, stylePrompt: string, response: string, model: ClaudeModel): string {
-  const input = `${defaultPrompt}\n${stylePrompt}\n\n<content>\n${response}\n</content>`;
+  const input = `${defaultPrompt}\n${stylePrompt}\n\n<content>\n${neutralizeFence(response)}\n</content>`;
   const result = callClaude(input, model);
 
   if (result.error || result.status !== 0) {
-    throw new Error(result.stderr || result.stdout || 'claude CLI 실패');
+    throw new Error(describeFailure(result));
   }
   return result.stdout.trim();
+}
+
+// Claude Team Monitor 등 외부 프로그램이 던지는 내부 판단용 프롬프트(사용자 작업이 아님)
+function isInternalJudgePrompt(prompt: string): boolean {
+  return prompt.includes('shouldNudge') && prompt.includes('JSON');
+}
+
+// 같은 세션·같은 시각·같은 프롬프트가 이미 마지막 줄에 있으면 중복 기록(훅 이중 발화 등)으로 본다
+function isDuplicateOfLast(filePath: string, entry: HistoryEntry): boolean {
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    const size = fs.statSync(filePath).size;
+    const readLen = Math.min(size, 256 * 1024);
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(readLen);
+      fs.readSync(fd, buf, 0, readLen, size - readLen);
+      const lines = buf.toString('utf-8').split('\n').filter(Boolean);
+      const last = lines[lines.length - 1];
+      if (!last) return false;
+      const prev = JSON.parse(last) as HistoryEntry;
+      return prev.sessionId === entry.sessionId && prev.time === entry.time && prev.prompt === entry.prompt;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
 }
 
 function main(): void {
@@ -204,6 +238,7 @@ function main(): void {
   const projectName = getStableProjectName(session_id, cwd);
 
   if (!shouldTrackProject(config, projectName)) {
+     readAndClearSessionEdits(session_id); // 제외 프로젝트의 편집 내용이 디스크에 쌓이지 않게 정리
      return;
   }
 
@@ -216,8 +251,18 @@ function main(): void {
     return;
   }
 
+  // transcript가 없는 외부 임시 세션(예: 삭제된 jobs/tmp 경로)은 에러 로그를 오염시키지 않고 조용히 skip
+  if (!transcript_path || !fs.existsSync(transcript_path)) {
+    readAndClearSessionEdits(session_id);
+    return;
+  }
+
   const { prompt: extractedPrompt, assistantTexts } = extractCurrentTurn(transcript_path);
   let prompt = extractedPrompt;
+  if (prompt && isInternalJudgePrompt(prompt)) {
+    readAndClearSessionEdits(session_id);
+    return; // 외부 앱의 내부 판단 호출은 일지 대상이 아님
+  }
   if (!prompt) {
     logError(`user 메시지 추출 실패 (session: ${session_id}), skip`);
     readAndClearSessionEdits(session_id);
@@ -240,7 +285,13 @@ function main(): void {
   // 요약할 내용이 없으므로 summarize() 호출(서브 claude 프로세스 실행)을 건너뛴다.
   // (실제로 호출해보면 "No content provided." 같은 형식에 안 맞는 응답이 나옴)
   if(config.summary.use && answer){
-    summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, answer, config.summary.claudeModel)
+    try {
+      summary = summarize(config.summary.defaultPrompt, config.summary.stylePrompt, answer, config.summary.claudeModel);
+    } catch (e) {
+      // 요약만 실패해도 원문(answer)은 기록한다(일지 생성 시 [정리필요] 경로로 처리됨)
+      logError(`요약 실패, 원문만 기록: ${e}`);
+      summary = '';
+    }
 
     if(summary.trim().toUpperCase() === 'SKIP') {
       readAndClearSessionEdits(session_id);
@@ -264,10 +315,12 @@ function main(): void {
     ...(fileEdits.length > 0 ? { fileEdits } : {}),
   };
 
-  fs.appendFileSync(
-    path.join(historyDir, `${projectName}.jsonl`),
-    JSON.stringify(entry) + '\n',
-  );
+  const historyFile = path.join(historyDir, `${projectName}.jsonl`);
+  if (isDuplicateOfLast(historyFile, entry)) {
+    return; // 훅 이중 발화 등으로 같은 턴이 두 번 들어온 경우
+  }
+
+  fs.appendFileSync(historyFile, JSON.stringify(entry) + '\n');
 
   // 이미 일지가 생성된 날에 새 대화가 추가되면 modified로 변경
   recordRunHistory({ date: getDateString(config.timeZone), status: 'modified', timestamp: new Date().toISOString() });
