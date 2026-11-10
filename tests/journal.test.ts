@@ -9,6 +9,7 @@ import {
 } from '../src/generate-journal';
 import { extractProjectName, isInternalJudgePrompt, loadAllRunHistory, recordRunHistory } from '../src/config';
 import { neutralizeFence, stripCliNoise } from '../src/claude';
+import { LEGACY_PERMISSION_RULES, PERMISSION_RULE } from '../src/setup';
 import type { Config, HistoryEntry } from '../src/types';
 
 const entry = (over: Partial<HistoryEntry>): HistoryEntry => ({
@@ -144,4 +145,12 @@ test('projectNamesOf / projectCoverage: 섹션 헤더에서 프로젝트명을 �
   const cov = projectCoverage('## a\n내용', names);
   assert.equal(cov.covered, 1);
   assert.deepEqual(cov.missing, ['b']);
+});
+
+test('권한 규칙: 홈 기준(~/) 규칙을 쓰고 이전 변형(Write/절대경로)은 정리 대상', () => {
+  assert.equal(PERMISSION_RULE, 'Edit(~/.claude/daily-journal/**)');
+  const legacy = LEGACY_PERMISSION_RULES();
+  assert.ok(!legacy.includes(PERMISSION_RULE));
+  assert.ok(legacy.some(r => r.startsWith('Write(')));
+  assert.ok(legacy.some(r => r.startsWith('Edit(') && r.includes('daily-journal')));
 });

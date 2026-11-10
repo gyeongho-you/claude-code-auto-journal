@@ -9,6 +9,17 @@ const HOME = os.homedir();
 const CLAUDE_DIR = path.join(HOME, '.claude');
 const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
 
+// 기록 폴더 편집 허용 규칙(홈 기준 경로 - Windows/macOS/Linux 공통, 사용자 설정 ~/.claude/settings.json 에서도 동일하게 해석)
+export const PERMISSION_RULE = 'Edit(~/.claude/daily-journal/**)';
+
+// 이전 버전이 넣었던 규칙 변형들(Write 규칙, OS별 절대경로, 슬래시 변형)
+export function LEGACY_PERMISSION_RULES(): string[] {
+  const abs = path.join(DATA_DIR, '**');
+  const fwd = abs.replace(/\\/g, '/');
+  return [...new Set(['Edit', 'Write'].flatMap(tool => [`${tool}(${abs})`, `${tool}(${fwd})`, `${tool}(~/.claude/daily-journal/**)`]))]
+    .filter(r => r !== PERMISSION_RULE);
+}
+
 function initClaudeSetting(): void {
   const stopHookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'stop-hook.js')}"`;
   const fileEditHookCommand = `node "${path.join(PLUGIN_DIR, 'dist', 'file-edit-hook.js')}"`;
@@ -44,13 +55,13 @@ function initClaudeSetting(): void {
   // 기록파일 쓰기권한 추가
   const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
   const allowList = (permissions.allow ?? []) as string[];
-  // Claude Code는 파일 권한 규칙으로 Edit(path)만 인식한다(Write(path)는 경고/오류를 일으킴)
-  const dailyJournalPermission = `Edit(${path.join(DATA_DIR, '**')})`;
-  const legacyPermission = `Write(${path.join(DATA_DIR, '**')})`;
-  const cleaned = allowList.filter(p => p !== legacyPermission);
+  // Claude Code는 파일 권한 규칙으로 Edit(path)만 인식한다(Write(path)는 매칭되지 않고 경고를 일으킴).
+  // 경로는 문서에 명시된 홈 기준 형식(~/)을 쓴다. OS별 절대경로(C:\... 또는 /Users/...)는 규칙에서
+  // 프로젝트/설정 기준 상대경로로 해석될 수 있어 쓰지 않는다. 이전 버전이 넣은 규칙 변형은 정리한다.
+  const cleaned = allowList.filter(p => !LEGACY_PERMISSION_RULES().includes(p));
 
-  if (!cleaned.includes(dailyJournalPermission)) {
-    cleaned.push(dailyJournalPermission);
+  if (!cleaned.includes(PERMISSION_RULE)) {
+    cleaned.push(PERMISSION_RULE);
   }
 
   settings.permissions = { ...permissions, allow: cleaned };
@@ -285,7 +296,7 @@ function removeClaudeSetting(): void {
 
   const permissions = (settings.permissions ?? {}) as Record<string, unknown>;
   const allowList = (permissions.allow ?? []) as string[];
-  const ownPermissions = [`Edit(${path.join(DATA_DIR, '**')})`, `Write(${path.join(DATA_DIR, '**')})`];
+  const ownPermissions = [PERMISSION_RULE, ...LEGACY_PERMISSION_RULES()];
   settings.permissions = { ...permissions, allow: allowList.filter(p => !ownPermissions.includes(p)) };
 
   writeSettingsWithBackup(settings);

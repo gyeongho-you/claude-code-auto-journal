@@ -849,6 +849,12 @@ var import_child_process3 = require("child_process");
 var HOME = os3.homedir();
 var CLAUDE_DIR = path4.join(HOME, ".claude");
 var SETTINGS_PATH = path4.join(CLAUDE_DIR, "settings.json");
+var PERMISSION_RULE = "Edit(~/.claude/daily-journal/**)";
+function LEGACY_PERMISSION_RULES() {
+  const abs = path4.join(DATA_DIR, "**");
+  const fwd = abs.replace(/\\/g, "/");
+  return [...new Set(["Edit", "Write"].flatMap((tool) => [`${tool}(${abs})`, `${tool}(${fwd})`, `${tool}(~/.claude/daily-journal/**)`]))].filter((r) => r !== PERMISSION_RULE);
+}
 function initClaudeSetting() {
   const stopHookCommand = `node "${path4.join(PLUGIN_DIR, "dist", "stop-hook.js")}"`;
   const fileEditHookCommand = `node "${path4.join(PLUGIN_DIR, "dist", "file-edit-hook.js")}"`;
@@ -874,11 +880,9 @@ function initClaudeSetting() {
   settings.hooks = { ...hooks, Stop: stopHooks, PostToolUse: postToolUseHooks };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
-  const dailyJournalPermission = `Edit(${path4.join(DATA_DIR, "**")})`;
-  const legacyPermission = `Write(${path4.join(DATA_DIR, "**")})`;
-  const cleaned = allowList.filter((p) => p !== legacyPermission);
-  if (!cleaned.includes(dailyJournalPermission)) {
-    cleaned.push(dailyJournalPermission);
+  const cleaned = allowList.filter((p) => !LEGACY_PERMISSION_RULES().includes(p));
+  if (!cleaned.includes(PERMISSION_RULE)) {
+    cleaned.push(PERMISSION_RULE);
   }
   settings.permissions = { ...permissions, allow: cleaned };
   writeSettingsWithBackup(settings);
@@ -1068,7 +1072,7 @@ function removeClaudeSetting() {
   };
   const permissions = settings.permissions ?? {};
   const allowList = permissions.allow ?? [];
-  const ownPermissions = [`Edit(${path4.join(DATA_DIR, "**")})`, `Write(${path4.join(DATA_DIR, "**")})`];
+  const ownPermissions = [PERMISSION_RULE, ...LEGACY_PERMISSION_RULES()];
   settings.permissions = { ...permissions, allow: allowList.filter((p) => !ownPermissions.includes(p)) };
   writeSettingsWithBackup(settings);
   console.log("\u2713 Stop \uD6C5, PostToolUse \uD6C5, \uAE30\uB85D \uD30C\uC77C \uD3B8\uC9D1 \uAD8C\uD55C \uC81C\uAC70 \uC644\uB8CC");
