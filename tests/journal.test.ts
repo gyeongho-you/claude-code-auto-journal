@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  buildSections, findMissedDates, isJsonLike, isValidDate, isValidJournal,
+  buildSections, findMissedDates, isJsonLike, isValidDate, isValidJournal, projectCoverage, projectNamesOf,
   splitIntoChunks, stripOuterCodeFence,
 } from '../src/generate-journal';
 import { extractProjectName, isInternalJudgePrompt, loadAllRunHistory, recordRunHistory } from '../src/config';
@@ -136,4 +136,12 @@ test('findMissedDates: 실패 3회·no_data·빈 history 제외, 최근 3일만,
   for (let i = 0; i < 3; i++) recordRunHistory({ date: '2026-11-01', status: 'failed', timestamp: 't' });
   const config = { journal: { output_dir: out } } as unknown as Config;
   assert.deepEqual(findMissedDates(config, '2026-11-10'), ['2026-11-04', '2026-11-05', '2026-11-06']);
+});
+
+test('projectNamesOf / projectCoverage: 섹션 헤더에서 프로젝트명을 뽑고 누락을 계산', () => {
+  const names = projectNamesOf(['## a\n---\n[작업] x', '## b\n---\n[작업] y', '## a\n---\n[작업] z']);
+  assert.deepEqual(names, ['a', 'b']);
+  const cov = projectCoverage('## a\n내용', names);
+  assert.equal(cov.covered, 1);
+  assert.deepEqual(cov.missing, ['b']);
 });
