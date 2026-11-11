@@ -258,7 +258,23 @@ function registerWindowsScheduler(endTime) {
   } catch {
   }
   (0, import_child_process.execSync)(createCmd, { stdio: "inherit" });
+  try {
+    applyWindowsTaskSettings(taskName);
+  } catch (e) {
+    console.warn(`\u26A0 \uC2A4\uCF00\uC904\uB7EC \uC635\uC158(\uBC30\uD130\uB9AC \uD5C8\uC6A9/\uB193\uCE5C \uC2E4\uD589 \uBCF4\uCDA9) \uC801\uC6A9 \uC2E4\uD328 - \uAE30\uBCF8\uAC12\uC73C\uB85C \uB4F1\uB85D\uB428: ${e}`);
+  }
   console.log(`\u2713 Task Scheduler \uB4F1\uB85D \uC644\uB8CC (\uB9E4\uC77C ${endTime})`);
+}
+function applyWindowsTaskSettings(taskName) {
+  const script = [
+    `$t = Get-ScheduledTask -TaskName '${taskName}'`,
+    `$t.Settings.DisallowStartIfOnBatteries = $false`,
+    `$t.Settings.StopIfGoingOnBatteries = $false`,
+    `$t.Settings.StartWhenAvailable = $true`,
+    `Set-ScheduledTask -InputObject $t | Out-Null`
+  ].join("; ");
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  (0, import_child_process.execSync)(`powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`, { stdio: "ignore" });
 }
 function registerCronJob(generateTime) {
   const [hour, minute] = generateTime.split(":");

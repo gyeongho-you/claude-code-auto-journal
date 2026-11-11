@@ -146,7 +146,29 @@ function registerWindowsScheduler(endTime: string): void {
   } catch { /* 없으면 무시 */ }
 
   execSync(createCmd, { stdio: 'inherit' });
+
+  // schtasks /create 기본값은 "배터리 구동 중에는 시작 안 함" + "놓친 실행은 건너뜀"이라서,
+  // 노트북에서 18시에 배터리거나 절전 상태면 그날 일지가 생성되지 않는다. 옵션을 명시해 둔다.
+  try {
+    applyWindowsTaskSettings(taskName);
+  } catch (e) {
+    console.warn(`⚠ 스케줄러 옵션(배터리 허용/놓친 실행 보충) 적용 실패 - 기본값으로 등록됨: ${e}`);
+  }
   console.log(`✓ Task Scheduler 등록 완료 (매일 ${endTime})`);
+}
+
+// 배터리에서도 실행하고, 시작 시각을 놓치면(절전/전원 꺼짐) 가능한 한 빨리 실행하도록 작업 옵션을 설정한다.
+function applyWindowsTaskSettings(taskName: string): void {
+  const script = [
+    `$t = Get-ScheduledTask -TaskName '${taskName}'`,
+    `$t.Settings.DisallowStartIfOnBatteries = $false`,
+    `$t.Settings.StopIfGoingOnBatteries = $false`,
+    `$t.Settings.StartWhenAvailable = $true`,
+    `Set-ScheduledTask -InputObject $t | Out-Null`,
+  ].join('; ');
+  // 따옴표/특수문자 인용 문제를 피하려고 Base64(UTF-16LE)로 전달한다
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`, { stdio: 'ignore' });
 }
 
 function registerCronJob(generateTime: string): void {

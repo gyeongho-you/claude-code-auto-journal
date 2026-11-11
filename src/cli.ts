@@ -182,6 +182,11 @@ function cmdUpdate(): void {
 
   // 1. git pull
   console.log('1. 최신 코드 받는 중 (git pull)...');
+  // dist/는 빌드 산출물이다. 이전 업데이트의 빌드가 줄바꿈(CRLF/LF)만 다르게 덮어써서 "수정됨" 상태가 되면
+  // 다음 pull이 "로컬 변경 때문에 덮어쓸 수 없음"으로 실패하므로, pull 전에 커밋된 버전으로 되돌린다(어차피 곧 다시 빌드).
+  try {
+    execSync('git checkout -- dist', { cwd: PLUGIN_DIR, stdio: 'ignore' });
+  } catch { /* dist가 추적되지 않는 환경이면 무시 */ }
   try {
     const pullOutput = execSync('git pull', { cwd: PLUGIN_DIR, encoding: 'utf-8' });
     console.log('  ' + pullOutput.trim().replace(/\n/g, '\n  '));
